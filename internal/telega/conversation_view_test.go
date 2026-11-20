@@ -92,7 +92,7 @@ func TestConversationShowsDateAndUnreadSeparators(t *testing.T) {
 	}
 
 	out := screen.String()
-	for _, part := range []string{"\x1b[6;36H── 2026-06-08", "\x1b[10;36H── 2026-06-09", "\x1b[11;36H──────── Unread"} {
+	for _, part := range []string{"\x1b[6;46H── 2026-06-08 ──", "\x1b[10;46H── 2026-06-09 ──", "\x1b[11;48H── Unread ──"} {
 		if !strings.Contains(out, part) {
 			t.Fatalf("conversation missing %q", part)
 		}

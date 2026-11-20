@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/rivo/uniseg"
 )
 
 func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, string), left, cols, statusRow int) {
@@ -31,9 +33,12 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 		newerDay  time.Time
 	)
 
-	showDay := func(day time.Time) {
-		b.WriteString(colors.date)
-		label(body, bottom, bodyWidth, "── "+day.Format(time.DateOnly)+" ──")
+	showSeparator := func(text, style string) {
+		text = "── " + text + " ──"
+		width := uniseg.StringWidth(text)
+
+		b.WriteString(style)
+		label(left+(cols-left+1-width)/2, bottom, width, text)
 		b.WriteString("\x1b[0m")
 	}
 
@@ -89,9 +94,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			if bottom-firstMessageRow > minRows+dateRows {
 				bottom--
 
-				b.WriteString(colors.unread)
-				label(body, bottom, bodyWidth, "──────── Unread ────────")
-				b.WriteString("\x1b[0m")
+				showSeparator("Unread", colors.unread)
 			}
 
 			sawUnread = false
@@ -101,7 +104,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			if bottom-firstMessageRow > minRows {
 				bottom--
 
-				showDay(newerDay)
+				showSeparator(newerDay.Format(time.DateOnly), colors.date)
 			}
 
 			if padDate {
@@ -172,7 +175,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 	if !newerDay.IsZero() && bottom > firstMessageRow {
 		bottom--
 
-		showDay(newerDay)
+		showSeparator(newerDay.Format(time.DateOnly), colors.date)
 	}
 
 	if room := bottom - firstMessageRow; room >= (statusRow-firstMessageRow)/2 {
