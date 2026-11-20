@@ -2,6 +2,8 @@
 
 A keyboard-driven Telegram client for Linux and OpenBSD. It connects to a personal account over MTProto through [gotd](https://github.com/gotd/td). The interface keeps up to 96 messages from the current conversation in memory and loads history in pages.
 
+![telega demo showing an unread conversation, a code block, and a reply](docs/screenshot.png)
+
 ## Install
 
 Download the archive for your OS and architecture from [GitHub Releases](https://github.com/danilrwx/telega/releases). The releases include Linux and OpenBSD builds for amd64, arm64, and ARMv7, with SHA-256 checksums. For a Pomera DM250 running OpenBSD, use `telega_openbsd_armv7.tar.gz`.
@@ -31,7 +33,8 @@ Run `telega --qr` and scan the QR code using **Settings → Devices → Link Des
 | Conversation | `J`, `F`, `Ctrl+O` | Open the quoted message, open the forwarded source when available, or jump back |
 | Conversation | `y`, `v`, `o` / `O` | Copy text, reveal spoilers, or open an attachment or link |
 | Conversation | `Space`, `f`, `d` / `D` | Select multiple messages, forward, or request deletion for yourself or for everyone |
-| Conversation | `a`, `s`, `S`, `Ctrl+V` | Attach an image, paste a screenshot, capture a Wayland region, or paste a screenshot |
+| Conversation | `a`, `Ctrl+V` / `s` | Attach an image or paste a screenshot from the clipboard |
+| Conversation | `S` | Take a screenshot of a selected region on Wayland |
 | Composer | `Enter`, `Ctrl+J`, `Ctrl+S`, `Esc` | Send, add a line, save a draft and return to chats, or cancel |
 
 Normal-mode shortcuts work with the English and Russian layouts. Messages and search fields accept the text you type. Terminal paste (often `Ctrl+Shift+V`) keeps line breaks and indentation. Use triple backticks on their own lines to send a code block. A language can follow the opening backticks.
@@ -39,7 +42,8 @@ Normal-mode shortcuts work with the English and Russian layouts. Messages and se
 At the latest messages in a focused chat, incoming messages are marked as read, including while you compose. History loads in advance when about half the conversation pane is empty. The selected message stays in place. Timestamps are in UTC. Numeric badges indicate unread counts, `@` indicates mentions, and a dot indicates a manual unread mark.
 
 - Forwarding and deletion ask for confirmation. Telegram applies channel and supergroup deletion to everyone.
-- Screenshots use `wl-paste` on Wayland or `xclip` on X11. Region capture uses `slurp` and `grim`. A screenshot pasted while composing uses the existing draft as its caption.
+- Pasting a screenshot from the clipboard uses `wl-paste` on Wayland or `xclip` on X11. When you paste while composing, your draft becomes the caption.
+- To take a screenshot from inside telega on Wayland, press `S` to select a region. This optional shortcut uses `slurp` and `grim`.
 - Copying uses `wl-copy`, `xclip`, or OSC 52 when supported by the terminal. Downloads go to the private `telega/attachments` directory in the system cache and open through `open` or `xdg-open`.
 - Desktop notifications use `notify-send` when available, with the terminal bell as a fallback.
 

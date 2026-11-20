@@ -86,7 +86,8 @@ func Run(opts Options) error {
 	}
 
 	if demo {
-		a.chats = []chat{{key: peerKey{'u', 1}, title: "Избранное"}, {key: peerKey{'g', 2}, title: "Тихий чат", group: true}}
+		a.chats = demoChats()
+		a.openChat(requests, 0)
 	} else {
 		a.pending = "connect"
 

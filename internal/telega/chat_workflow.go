@@ -65,8 +65,8 @@ func (a *app) resetChat() {
 func (a *app) openChat(out chan<- request, index int) {
 	a.selected, a.open, a.status = index, true, ""
 	if a.demo {
-		for i, text := range []string{"Привет! Это демонстрационный чат.", "Enter — написать, Esc — вернуться к чатам.", "Работает даже без сети."} {
-			a.insert(message{id: i + 1, text: text, date: time.Now(), out: i == 2}, false)
+		for _, msg := range demoHistory(a.chats[index]) {
+			a.insert(msg, false)
 		}
 
 		a.restoreDraft()
