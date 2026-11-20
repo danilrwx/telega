@@ -73,9 +73,14 @@ func lookupAuthor(ctx context.Context, api *tg.Client, req request) string {
 }
 
 func searchHistory(ctx context.Context, api *tg.Client, req request) ([]message, error) {
-	result, err := api.MessagesSearch(ctx, &tg.MessagesSearchRequest{
+	query := &tg.MessagesSearchRequest{
 		Peer: req.chat.input, Q: req.text, Filter: &tg.InputMessagesFilterEmpty{}, OffsetID: req.anchor, Limit: historyLimit,
-	})
+	}
+	if req.chat.threadID != 0 {
+		query.SetTopMsgID(req.chat.threadID)
+	}
+
+	result, err := api.MessagesSearch(ctx, query)
 	if err != nil {
 		return nil, err
 	}

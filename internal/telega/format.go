@@ -221,8 +221,14 @@ func formattedMessage(msg message, width, limit int, reveal bool) []string {
 	}
 
 	var lines []string
+
 	if msg.attachment != nil {
-		lines = append(lines, "\x1b[36m"+wrap("[File] "+msg.attachment.name, width, 1)[0]+"\x1b[0m")
+		kind := msg.attachment.kind
+		if kind == "" {
+			kind = "File"
+		}
+
+		lines = append(lines, "\x1b[36m"+wrap("["+kind+"] "+msg.attachment.name, width, 1)[0]+"\x1b[0m")
 		if len(lines) == limit || msg.text == "[Attachment]" || msg.text == "" {
 			return lines
 		}

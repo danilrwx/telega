@@ -39,11 +39,11 @@ func demoHistory(current chat) []message {
 		{id: 3, date: morning.Add(5 * time.Minute), authorName: "Theo Park", text: "The release archive fits on the spare card."},
 		{id: 4, date: morning.Add(7 * time.Minute), authorName: "Nora Voss", text: "I'll check that the screen is readable outside."},
 		{id: 5, date: morning.Add(9 * time.Minute), authorName: "Theo Park", text: code, spans: messageSpans(entities)},
-		{id: 6, date: morning.Add(12 * time.Minute), out: true, text: "[Attachment]", attachment: &attachment{name: "bench-test.png"}},
+		{id: 6, date: morning.Add(12 * time.Minute), out: true, text: "[Attachment]", attachment: &attachment{name: "bench-test.png", kind: "Photo"}},
 		{id: 7, date: morning.Add(15 * time.Minute), authorName: "Nora Voss", text: "The pale theme still reads well with the backlight turned down."},
 		{id: 8, date: morning.Add(17 * time.Minute), authorName: "Theo Park", text: "Clipboard paste worked on the laptop. The caption came through."},
 		{id: 9, date: morning.Add(19 * time.Minute), authorName: "Nora Voss", text: "I'll add that to the setup notes."},
-		{id: 10, date: morning.Add(20 * time.Minute), out: true, text: "I can leave a spare card in the field kit."},
+		{id: 10, date: morning.Add(20 * time.Minute), out: true, text: "I can leave a spare card in the field kit.", reactions: "👍 2  ❤️ 1"},
 		{id: 11, date: morning.Add(22 * time.Minute), authorName: "Mira Chen", text: "Please do. Then we're ready for Saturday.", reply: messageReply{id: 10}},
 	}
 }

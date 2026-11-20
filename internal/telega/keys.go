@@ -29,6 +29,10 @@ func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key) {
 		var k key
 
 		switch ch {
+		case 2:
+			k.name = "fileMode"
+		case 9:
+			k.name = "tab"
 		case 14:
 			k.name = "nextChat"
 		case 16:

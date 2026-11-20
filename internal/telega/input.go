@@ -121,6 +121,10 @@ func (a *app) input(k key, out chan<- request) bool {
 		return true
 	}
 
+	if a.noticeStatusVisible {
+		a.noticeStatus = ""
+	}
+
 	if k.name == "quit" {
 		return false
 	}
@@ -128,6 +132,11 @@ func (a *app) input(k key, out chan<- request) bool {
 	if !a.ready {
 		if k.name == "escape" {
 			return false
+		}
+
+		if a.disconnected && a.pending == "" && commandKey(k).text == "r" && k.name == "" {
+			a.ask(out, request{kind: "reconnect"})
+			return true
 		}
 
 		if a.prompt != "" && a.pending == "" {
@@ -139,6 +148,16 @@ func (a *app) input(k key, out chan<- request) bool {
 			}
 		}
 
+		return true
+	}
+
+	if len(a.topicEntries) > 0 {
+		a.inputTopics(commandKey(k), out)
+		return true
+	}
+
+	if a.pickingReaction {
+		a.pickReaction(k, out)
 		return true
 	}
 
@@ -185,7 +204,7 @@ func (a *app) input(k key, out chan<- request) bool {
 	}
 
 	if a.imagePath {
-		a.pictureInput(k, out)
+		a.attachmentInput(k, out)
 		return true
 	}
 
@@ -196,7 +215,7 @@ func (a *app) input(k key, out chan<- request) bool {
 	if a.open && !a.searching && (k.name == "pasteImage" || !a.composing && k.name == "" && k.text == "s") {
 		if !a.demo && a.pending == "" && a.staged == nil && a.editID == 0 {
 			a.imageFromCompose, a.composing, a.prefixG = a.composing, false, false
-			a.ask(out, request{kind: "clipboard", chat: a.chats[a.selected]})
+			a.ask(out, request{kind: "clipboard", chat: a.currentChat()})
 		}
 
 		return true
@@ -206,6 +225,11 @@ func (a *app) input(k key, out chan<- request) bool {
 		switch k.name {
 		case "escape":
 			a.clearComposer()
+		case "fileMode":
+			if a.staged != nil && a.staged.format != "" && a.staged.format != "gif" {
+				a.asFile = !a.asFile
+				a.status = ""
+			}
 		case "newline":
 			a.edit(key{text: "\n"})
 		case "paste":
@@ -261,7 +285,11 @@ func (a *app) input(k key, out chan<- request) bool {
 			}
 
 			if a.pending == "" {
-				a.resetChat()
+				if a.thread != nil {
+					a.leaveThread(out)
+				} else {
+					a.resetChat()
+				}
 			}
 		case "enter":
 			if a.pending == "" {
@@ -282,7 +310,7 @@ func (a *app) input(k key, out chan<- request) bool {
 			a.scroll(out, max(1, len(a.log)-1-a.offset))
 		case "end":
 			if a.newerTrimmed && a.pending == "" {
-				a.ask(out, request{kind: "latest", chat: a.chats[a.selected]})
+				a.ask(out, request{kind: "latest", chat: a.currentChat()})
 			} else {
 				a.offset = 0
 			}
@@ -295,6 +323,14 @@ func (a *app) input(k key, out chan<- request) bool {
 				}
 			case "e":
 				a.beginEdit()
+			case "t":
+				if !a.demo && a.pending == "" && a.thread == nil && a.currentChat().forum {
+					a.ask(out, request{kind: "topics", chat: a.currentChat()})
+				}
+			case "c":
+				if !a.demo && a.pending == "" && a.thread == nil && len(a.log) > 0 && a.log[a.offset].comments {
+					a.ask(out, request{kind: "discussion", chat: a.currentChat(), anchor: a.log[a.offset].id})
+				}
 			case "f":
 				a.beginForward()
 			case "F":
@@ -303,6 +339,10 @@ func (a *app) input(k key, out chan<- request) bool {
 				}
 			case "y":
 				a.copyMessage()
+			case "z":
+				if !a.demo && a.pending == "" && len(a.log) > 0 {
+					a.pickingReaction = true
+				}
 			case "J":
 				a.jumpToReply(out)
 			case "u":
@@ -315,18 +355,18 @@ func (a *app) input(k key, out chan<- request) bool {
 				a.toggleSelected()
 			case "d", "D":
 				a.askDelete(k.text == "D")
-			case "a":
+			case "a", "A":
 				if !a.demo && a.pending == "" {
-					a.imagePath = true
+					a.imagePath, a.filePath = true, k.text == "A"
 					a.clearDraft()
 				}
 			case "S":
 				if !a.demo && a.pending == "" {
-					a.ask(out, request{kind: "screenshot", chat: a.chats[a.selected]})
+					a.ask(out, request{kind: "screenshot", chat: a.currentChat()})
 				}
 			case "m":
 				if !a.demo && a.pending == "" && len(a.log) > 0 {
-					a.ask(out, request{kind: "markRead", chat: a.chats[a.selected], anchor: a.log[a.offset].id})
+					a.ask(out, request{kind: "markRead", chat: a.currentChat(), anchor: a.log[a.offset].id})
 				}
 			case "n":
 				a.findMessage(1)
@@ -348,6 +388,11 @@ func (a *app) input(k key, out chan<- request) bool {
 	}
 
 	switch k.name {
+	case "tab":
+		if !a.demo && a.pending == "" {
+			a.chatQuery = ""
+			a.ask(out, request{kind: "chats", page: dialogPage{folder: 1 - a.dialogPage.folder}})
+		}
 	case "escape":
 		if a.chatQuery != "" {
 			a.chatQuery = ""
@@ -379,8 +424,16 @@ func (a *app) input(k key, out chan<- request) bool {
 		switch k.text {
 		case "r":
 			if !a.demo && a.pending == "" {
-				a.ask(out, request{kind: "chats"})
+				a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder}})
 			}
+		case "A":
+			if !a.demo && a.pending == "" && len(a.chats) > 0 {
+				a.ask(out, request{kind: "archiveChat", chat: a.currentChat(), page: dialogPage{folder: a.dialogPage.folder}})
+			}
+		case "]":
+			a.pageDialogs(out, 1)
+		case "[":
+			a.pageDialogs(out, -1)
 		case "u":
 			a.nextUnread(1)
 		case "U":
@@ -398,7 +451,7 @@ func (a *app) openSelected(out chan<- request, linksOnly bool) {
 
 	msg := a.log[a.offset]
 	if msg.attachment != nil && !linksOnly {
-		a.ask(out, request{kind: "download", chat: a.chats[a.selected], anchor: msg.id, attachment: msg.attachment})
+		a.ask(out, request{kind: "download", chat: a.currentChat(), anchor: msg.id, attachment: msg.attachment})
 		return
 	}
 

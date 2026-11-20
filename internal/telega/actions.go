@@ -15,6 +15,7 @@ import (
 
 type messageLink struct {
 	url    string
+	label  string
 	hidden bool
 }
 
@@ -73,7 +74,7 @@ func entityString(text string, offset, length int) string {
 func messageLinks(text string, entities []tg.MessageEntityClass, spans []textSpan) []messageLink {
 	var links []messageLink
 
-	add := func(raw string, start, end int) {
+	add := func(raw, label string, start, end int) {
 		target := webLink(raw, true)
 		if target == "" {
 			return
@@ -84,27 +85,28 @@ func messageLinks(text string, entities []tg.MessageEntityClass, spans []textSpa
 		})
 
 		for i, link := range links {
-			if link.url == target {
+			if link.url == target && link.label == label {
 				links[i].hidden = link.hidden && hidden
 				return
 			}
 		}
 
-		links = append(links, messageLink{target, hidden})
+		links = append(links, messageLink{url: target, label: label, hidden: hidden})
 	}
 	for _, entity := range entities {
 		start, size := entity.GetOffset(), entity.GetLength()
 		switch entity := entity.(type) {
 		case *tg.MessageEntityTextURL:
-			add(entity.URL, start, start+size)
+			label := strings.Join(strings.Fields(entityString(text, start, size)), " ")
+			add(entity.URL, label, start, start+size)
 		case *tg.MessageEntityURL:
-			add(entityString(text, start, size), start, start+size)
+			add(entityString(text, start, size), "", start, start+size)
 		}
 	}
 	// Sent messages can arrive before Telegram supplies their parsed entities.
 	if len(entities) == 0 {
 		for _, raw := range plainLink.FindAllString(text, -1) {
-			add(strings.TrimRight(raw, ".,;!?)]}"), 0, 0)
+			add(strings.TrimRight(raw, ".,;!?)]}"), "", 0, 0)
 		}
 	}
 
@@ -112,11 +114,11 @@ func messageLinks(text string, entities []tg.MessageEntityClass, spans []textSpa
 }
 
 func (a *app) chooseLink(msg message) {
-	var choices []string
+	var choices []messageLink
 
 	for _, link := range msg.links {
 		if !link.hidden || a.revealID == msg.id {
-			choices = append(choices, link.url)
+			choices = append(choices, link)
 		}
 	}
 
@@ -124,7 +126,7 @@ func (a *app) chooseLink(msg message) {
 	case 0:
 		a.status = "No visible link on the selected message"
 	case 1:
-		a.openTarget = choices[0]
+		a.openTarget = choices[0].url
 	default:
 		a.linkChoices, a.linkIndex = choices, 0
 	}
@@ -135,7 +137,7 @@ func (a *app) linkInput(k key) {
 	case k.name == "escape" || k.name == "left" || k.text == "h":
 		a.linkChoices = nil
 	case k.name == "enter":
-		a.openTarget = a.linkChoices[a.linkIndex]
+		a.openTarget = a.linkChoices[a.linkIndex].url
 		a.linkChoices = nil
 	case k.name == "up" || k.text == "k":
 		a.linkIndex = max(0, a.linkIndex-1)
@@ -168,7 +170,7 @@ func (a *app) askDelete(forEveryone bool) {
 	}
 
 	a.confirmDelete = a.selectedMessages()
-	a.deleteForEveryone = forEveryone || a.chats[a.selected].key.kind == 'c'
+	a.deleteForEveryone = forEveryone || a.currentChat().key.kind == 'c'
 }
 
 func (a *app) selectedMessages() []int {
@@ -201,7 +203,7 @@ func (a *app) confirmDeletion(k key, out chan<- request) {
 			return
 		}
 
-		a.ask(out, request{kind: "deleteMessages", chat: a.chats[a.selected], ids: ids, revoke: a.deleteForEveryone})
+		a.ask(out, request{kind: "deleteMessages", chat: a.currentChat(), ids: ids, revoke: a.deleteForEveryone})
 	}
 }
 

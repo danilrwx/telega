@@ -60,13 +60,28 @@ func wrap(text string, width, limit int) []string {
 	return append(lines, line.String())
 }
 
+func shortSender(title string, width int) string {
+	names := strings.Fields(title)
+	if len(names) == 0 {
+		return "Peer"
+	}
+
+	name := names[0]
+	if uniseg.StringWidth(name) > width {
+		return wrap(name, width-1, 1)[0] + "…"
+	}
+
+	return name
+}
+
 const minTerminalCols, minTerminalRows = 24, 7
 
 func paint(w io.Writer, a *app, cols, rows int) error {
 	var b strings.Builder
 	b.WriteString("\x1b[?25l\x1b[2J")
 
-	a.historyRoom = 0
+	a.historyRoom, a.visibleMessages = 0, 0
+	a.noticeStatusVisible = false
 
 	if cols < minTerminalCols || rows < minTerminalRows {
 		_, err := io.WriteString(w, b.String()+"\x1b[HResize your terminal")
@@ -80,6 +95,31 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		fmt.Fprintf(&b, "\x1b[%d;1H\x1b[7m%s", y, strings.Repeat(" ", cols))
 		label(2, y, cols-2, text)
 		b.WriteString("\x1b[0m")
+	}
+
+	if len(a.topicEntries) > 0 {
+		bar(1, a.currentChat().title+" · Topics")
+		bar(rows, "jk choose  Enter open  [/] pages  Esc back")
+
+		start := max(0, a.topicIndex-rows+4)
+		for i, entry := range a.topicEntries[start:min(len(a.topicEntries), start+rows-3)] {
+			if start+i == a.topicIndex {
+				label(2, i+2, 1, "›")
+			}
+
+			label(4, i+2, cols-4, topicLabel(entry))
+		}
+
+		status := a.status
+		if a.pending == "topics" {
+			status = "Loading topics…"
+		}
+
+		label(2, rows-1, cols-2, status)
+
+		_, err := io.WriteString(w, b.String())
+
+		return err
 	}
 
 	if a.forwardIDs != nil {
@@ -150,12 +190,19 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		title += "   /   Demo"
 	}
 
+	if a.disconnected {
+		keys = "r reconnect  Esc quit"
+	}
+
 	if a.ready {
-		keys = "jk move   l open   / filter   u/U unread   Esc quit"
+		keys = "jk move  l open  Tab archive  [/] pages  / filter  u/U unread"
 	}
 
 	if a.open {
-		keys = "jk move  Ctrl+N/P chats  i write  r reply  ? search  u unread"
+		keys = "jk move  Ctrl+N/P chats  i write  r reply  z react  ? search"
+		if a.thread != nil {
+			keys = "jk move  h back  i write  r reply  z react  ? search"
+		}
 	}
 
 	if a.searching {
@@ -180,7 +227,13 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			keys = "Enter save edit  Ctrl+J newline  Esc cancel"
 		} else if a.staged == nil && !a.demo {
 			keys = "Enter send  Ctrl+J newline  Ctrl+V image  Esc cancel"
+		} else if a.staged != nil && a.staged.format != "" && a.staged.format != "gif" {
+			keys = "Enter send  Ctrl+B photo/file  Ctrl+J newline  Esc cancel"
 		}
+	}
+
+	if a.pickingReaction {
+		keys = "1 👍  2 ❤️  3 🔥  4 😂  5 🎉  6 👎  Esc cancel"
 	}
 
 	if a.pending == "send" || a.pending == "forward" || a.pending == "edit" {
@@ -219,14 +272,18 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if !a.ready {
-		if a.qr == "" {
+		if a.disconnected {
+			label(3, 3, cols-4, "Disconnected from Telegram")
+		} else if a.qr == "" {
 			label(3, 3, cols-4, "Sign in to Telegram")
 		} else {
 			lines := strings.Split(strings.TrimSuffix(a.qr, "\n"), "\n")
 
 			width := uniseg.StringWidth(lines[0])
 			if width > cols-2 || len(lines) > rows-3 {
-				label(2, 4, cols-2, "Enlarge the terminal to display the QR code.")
+				for i, line := range wrap("Enlarge the terminal for the QR code, or run telega --phone.", cols-2, rows-5) {
+					label(2, i+3, cols-2, line)
+				}
 			} else {
 				label(2, 2, cols-2, "Telegram on your phone: Settings > Devices > Link Desktop Device")
 				b.WriteString("\x1b[30;47m")
@@ -250,30 +307,50 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		}
 
 		if wide || !a.open {
-			label(2, 2, sidebar-3, "Chats")
+			title, shortcut := a.dialogTitle(), "Tab Archive"
+			if a.dialogPage.folder == 1 {
+				shortcut = "Tab Chats"
+			}
+
+			label(2, 2, sidebar-3, title)
+
+			if uniseg.StringWidth(title)+len(shortcut)+1 <= sidebar-3 {
+				label(sidebar-1-len(shortcut), 2, len(shortcut), shortcut)
+			}
 
 			indexes := a.visibleChats()
 
 			start := max(0, slices.Index(indexes, a.selected)-rows+6)
 			for row, i := range indexes[start:min(len(indexes), start+rows-5)] {
+				y, marker := row+3, "╵"
 				if i == a.selected {
-					label(2, row+3, 1, "›")
+					marker = "›"
+
+					fmt.Fprintf(&b, "\x1b[%d;2H\x1b[7m%s", y, strings.Repeat(" ", sidebar-2))
 				}
 
 				c := a.chats[i]
 				badge := c.unread.badge()
+				badgeWidth := uniseg.StringWidth(badge)
+				width := sidebar - 11 // Space for the mark, padding and a badge up to 999+@.
 
-				width := sidebar - 4
-				if badge != "" {
-					width -= uniseg.StringWidth(badge) + 1
-
-					b.WriteString("\x1b[1m")
+				name := c.title
+				if uniseg.StringWidth(name) > width {
+					name = wrap(name, width-1, 1)[0] + "…"
 				}
 
-				label(4, row+3, width, c.title)
+				label(2, y, 1, marker)
+				label(4, y, width, name)
 
 				if badge != "" {
-					label(5+width, row+3, sidebar-5-width, badge)
+					if i != a.selected {
+						b.WriteString("\x1b[36m")
+					}
+
+					label(sidebar-1-badgeWidth, y, badgeWidth, badge)
+				}
+
+				if i == a.selected || badge != "" {
 					b.WriteString("\x1b[0m")
 				}
 			}
@@ -289,102 +366,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 				left = sidebar + 2
 			}
 
-			chatTitle := a.chats[a.selected].title
-			if len(a.selection) > 0 {
-				chatTitle = fmt.Sprintf("[%d selected] %s", len(a.selection), chatTitle)
-			}
-
-			label(left, 2, cols-left, chatTitle)
-
-			bottom := statusRow
-			current := a.chats[a.selected]
-			unread := current.unread
-
-			gutter := 9
-			if current.key.kind == 'u' {
-				gutter = min(22, max(12, (cols-left)/3))
-			}
-
-			body := left + gutter
-			bodyWidth := cols - body + 1
-
-			var sawUnread bool
-
-			for i, msg := range a.log[a.offset:] {
-				if bottom <= 3 {
-					break
-				}
-
-				if sawUnread && msg.id <= unread.inboxID && bottom > 3 {
-					bottom--
-
-					b.WriteString("\x1b[1m")
-					label(body, bottom, bodyWidth, "──────── Unread ────────")
-					b.WriteString("\x1b[0m")
-
-					sawUnread = false
-				}
-
-				if bottom <= 3 {
-					break
-				}
-
-				if unread.count > 0 && msg.id > unread.inboxID && !msg.out {
-					sawUnread = true
-				}
-
-				lines := a.messageLines(msg, bodyWidth, bottom-3)
-				bottom -= len(lines)
-
-				stamp := msg.date.UTC().Format("15:04")
-				if current.key.kind == 'u' {
-					label(left, bottom, 5, stamp)
-
-					direction, person := "←", current.title
-					if msg.out {
-						direction, person = "→", "You"
-
-						b.WriteString("\x1b[36m")
-					}
-
-					b.WriteString("\x1b[1m")
-					label(left+6, bottom, gutter-7, direction+" "+person)
-					b.WriteString("\x1b[0m")
-				} else {
-					mark := " <"
-					if msg.out {
-						mark = " >"
-					}
-
-					label(left, bottom, 8, stamp+mark)
-				}
-
-				if _, checked := a.selection[msg.id]; checked {
-					if i == 0 {
-						b.WriteString("\x1b[7m")
-					}
-
-					label(body-1, bottom, 1, "*")
-
-					if i == 0 {
-						b.WriteString("\x1b[0m")
-					}
-				} else if i == 0 {
-					label(body-1, bottom, 1, "›")
-				}
-
-				for i, line := range lines {
-					fmt.Fprintf(&b, "\x1b[%d;%dH%s\x1b[0m", bottom+i, body, line)
-				}
-			}
-
-			if bottom-3 >= (statusRow-2)/2 {
-				a.historyRoom = bottom - 3
-			}
-
-			if len(a.log) == 0 && a.pending == "" {
-				label(left, 3, cols-left, "No messages")
-			}
+			a.paintConversation(&b, label, left, cols, statusRow)
 		}
 	}
 
@@ -394,19 +376,40 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		bar(1, "Open link")
 		bar(rows, keys)
 
-		start := max(0, a.linkIndex-rows+3)
-		for i, target := range a.linkChoices[start:min(len(a.linkChoices), start+rows-2)] {
+		start := max(0, a.linkIndex-rows+4)
+		for i, link := range a.linkChoices[start:min(len(a.linkChoices), start+rows-3)] {
 			prefix := "  "
 			if start+i == a.linkIndex {
 				prefix = "› "
 			}
 
-			label(2, i+2, cols-2, prefix+target)
+			caption := link.label
+			if caption == "" {
+				caption = link.url
+			}
+
+			label(2, i+2, cols-2, prefix+caption)
 		}
+
+		label(2, rows-1, cols-2, a.linkChoices[a.linkIndex].url)
 
 		_, err := io.WriteString(w, b.String())
 
 		return err
+	}
+
+	if a.pickingReaction {
+		status = "Choose a reaction · select the same emoji to remove it"
+
+		if len(a.log) > 0 && a.log[a.offset].myReaction != "" {
+			chosen := a.log[a.offset].myReaction
+			status = "Your reaction: " + chosen + " · select it again to remove"
+		}
+	}
+
+	if a.noticeStatus != "" && !a.pickingReaction && a.pending == "" && len(a.confirmDelete) == 0 {
+		status = a.noticeStatus
+		a.noticeStatusVisible = true
 	}
 
 	if len(a.confirmDelete) > 0 {
@@ -436,7 +439,10 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 				name += " / " + status
 			}
 
-			status = "Attached: " + name
+			status = "Photo: " + name
+			if a.asFile || a.staged.format == "" || a.staged.format == "gif" {
+				status = "File: " + name
+			}
 		}
 	}
 
@@ -446,18 +452,18 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			if a.open && !a.composing && !a.imagePath && !a.searching {
 				status = a.messageJumpHints()
 			}
-		case "connect":
+		case "connect", "reconnect":
 			status = "Connecting to Telegram…"
 		case "login":
 			status = "Waiting for Telegram…"
-		case "chats", "history", "older", "newer", "latest", "jump", "jumpBack", "unread":
+		case "chats", "archiveChat", "topics", "discussion", "threadParent", "history", "older", "newer", "latest", "jump", "jumpBack", "unread":
 			status = "Loading…"
 		case "searchHistory":
 			status = "Searching…"
 		case "download":
 			status = "Downloading attachment…"
-		case "image", "clipboard", "screenshot":
-			status = "Preparing image…"
+		case "image", "file", "clipboard", "screenshot":
+			status = "Preparing attachment…"
 		case "deleteMessages":
 			status = "Deleting messages…"
 		case "markRead":
@@ -481,6 +487,9 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		}
 	} else if a.imagePath {
 		prompt = "Image path"
+		if a.filePath {
+			prompt = "File path"
+		}
 	} else if a.pending == "" {
 		prompt, masked = a.prompt, a.masked
 	}

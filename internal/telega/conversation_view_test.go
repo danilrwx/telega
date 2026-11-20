@@ -1,0 +1,75 @@
+package telega
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestChannelMessageBlocksKeepTheirContentTogether(t *testing.T) {
+	morning := time.Date(2026, time.June, 9, 9, 0, 0, 0, time.UTC)
+	a := app{
+		ready: true, open: true, chats: []chat{{key: peerKey{'c', 2}, title: "Release Notes"}},
+		log: []message{
+			{
+				id: 2, date: morning.Add(time.Minute), text: strings.Repeat("x", 95),
+				attachment: &attachment{name: "board.jpg", kind: "Photo"},
+				reply:      messageReply{id: 1, quote: "Earlier update"}, reactions: "👍 2",
+			},
+			{id: 1, date: morning, authorName: "Ada", text: "[Attachment]", attachment: &attachment{name: "bench.mp4", kind: "Video"}},
+		},
+	}
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 150, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	out := screen.String()
+	for _, fragment := range []string{
+		"\x1b[13;32H09:01", "[J] Reply to Earlier update",
+		"[Photo] board.jpg", strings.Repeat("x", 90) + "\x1b[0m", "👍 2",
+		"\x1b[10;32H09:00", "\x1b[10;38HAda", "[Video] bench.mp4",
+	} {
+		if !strings.Contains(out, fragment) {
+			t.Errorf("conversation lost %q", fragment)
+		}
+	}
+
+	if count := strings.Count(out, "Release Notes"); count != 2 {
+		t.Fatalf("channel title should appear only in the chat list and the conversation title; got %d", count)
+	}
+
+	if count := strings.Count(out, "\x1b[36m│\x1b[0m"); count != 5 {
+		t.Fatalf("selected block should place the same line next to all five rows; got %d", count)
+	}
+}
+
+func TestDirectMessagesUseSeparateBlocksForEachMessage(t *testing.T) {
+	morning := time.Date(2026, time.June, 9, 9, 0, 0, 0, time.UTC)
+	a := app{
+		ready: true, open: true, chats: []chat{{key: peerKey{'u', 2}, title: "Ada Example"}},
+		log: []message{
+			{id: 3, date: morning.Add(2 * time.Minute), text: "Third", out: true},
+			{id: 2, date: morning.Add(time.Minute), text: "Second", out: true},
+			{id: 1, date: morning, text: "First"},
+		},
+	}
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 80, 16); err != nil {
+		t.Fatal(err)
+	}
+
+	out := screen.String()
+	for _, stamp := range []string{"\x1b[12;28H09:02", "\x1b[9;28H09:01", "\x1b[6;28H09:00", "→ You", "← Ada"} {
+		if !strings.Contains(out, stamp) {
+			t.Errorf("private message block is missing %q", stamp)
+		}
+	}
+
+	if count := strings.Count(out, "\x1b[36m│\x1b[0m") + strings.Count(out, "\x1b[2m│\x1b[0m"); count != 3 {
+		t.Fatalf("each private message should have a line beside its body; got %d", count)
+	}
+}

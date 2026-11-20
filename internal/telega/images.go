@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"mime"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,16 +20,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type uploadImage struct {
+type uploadAttachment struct {
 	path, format string
 	temporary    bool
-	randomID     int64
+	original     os.FileInfo
 }
 
-func openImage(path string) (*os.File, string, error) {
+func openRegularFile(path string) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	info, err := f.Stat()
@@ -36,10 +37,19 @@ func openImage(path string) (*os.File, string, error) {
 		_ = f.Close()
 
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 
-		return nil, "", errors.New("choose a regular image file")
+		return nil, errors.New("choose a regular file")
+	}
+
+	return f, nil
+}
+
+func openImage(path string) (*os.File, string, error) {
+	f, err := openRegularFile(path)
+	if err != nil {
+		return nil, "", err
 	}
 
 	_, format, err := image.DecodeConfig(f)
@@ -56,10 +66,10 @@ func openImage(path string) (*os.File, string, error) {
 	return f, format, nil
 }
 
-func stageImage(ctx context.Context, req request, scratch string) (*uploadImage, error) {
+func stageAttachment(ctx context.Context, req request, scratch string) (*uploadAttachment, error) {
 	path := strings.TrimSpace(req.text)
 
-	temporary := req.kind != "image"
+	temporary := req.kind != "image" && req.kind != "file"
 	if temporary {
 		var err error
 
@@ -76,7 +86,17 @@ func stageImage(ctx context.Context, req request, scratch string) (*uploadImage,
 		path = filepath.Join(home, path[2:])
 	}
 
-	f, format, err := openImage(path)
+	var (
+		f      *os.File
+		err    error
+		format string
+	)
+	if req.kind == "file" {
+		f, err = openRegularFile(path)
+	} else {
+		f, format, err = openImage(path)
+	}
+
 	if err != nil {
 		if temporary {
 			_ = os.Remove(path)
@@ -85,9 +105,18 @@ func stageImage(ctx context.Context, req request, scratch string) (*uploadImage,
 		return nil, err
 	}
 
+	original, err := f.Stat()
 	_ = f.Close()
 
-	return &uploadImage{path: path, format: format, temporary: temporary, randomID: randomMessageID()}, nil
+	if err != nil {
+		if temporary {
+			_ = os.Remove(path)
+		}
+
+		return nil, err
+	}
+
+	return &uploadAttachment{path: path, format: format, temporary: temporary, original: original}, nil
 }
 
 func screenshot(ctx context.Context, scratch string, region bool) (string, error) {
@@ -151,7 +180,7 @@ func screenshot(ctx context.Context, scratch string, region bool) (string, error
 	return "", errors.New("no PNG image in clipboard")
 }
 
-func (a *app) discardImage() {
+func (a *app) discardAttachment() {
 	if a.staged != nil && a.staged.temporary {
 		_ = os.Remove(a.staged.path)
 	}
@@ -159,7 +188,7 @@ func (a *app) discardImage() {
 	a.staged = nil
 }
 
-func (a *app) pictureInput(k key, out chan<- request) {
+func (a *app) attachmentInput(k key, out chan<- request) {
 	switch k.name {
 	case "escape":
 		a.imagePath = false
@@ -167,7 +196,12 @@ func (a *app) pictureInput(k key, out chan<- request) {
 		a.clearReply()
 	case "enter":
 		if path := strings.TrimSpace(string(a.draft)); path != "" {
-			a.ask(out, request{kind: "image", text: path, chat: a.chats[a.selected]})
+			kind := "image"
+			if a.filePath {
+				kind = "file"
+			}
+
+			a.ask(out, request{kind: kind, text: path, chat: a.currentChat()})
 			a.imagePath = false
 		}
 	default:
@@ -175,15 +209,41 @@ func (a *app) pictureInput(k key, out chan<- request) {
 	}
 }
 
-func sendImage(ctx context.Context, api *tg.Client, req request, caption string, entities []tg.MessageEntityClass) (tg.UpdatesClass, error) {
-	f, format, err := openImage(req.upload.path)
+func sendAttachment(ctx context.Context, api *tg.Client, req request, caption string, entities []tg.MessageEntityClass) (tg.UpdatesClass, error) {
+	upload := req.upload
+	document := req.asFile || upload.format == "" || upload.format == "gif"
+
+	var (
+		f   *os.File
+		err error
+	)
+
+	if document {
+		f, err = openRegularFile(upload.path)
+	} else {
+		var format string
+
+		f, format, err = openImage(upload.path)
+		if err == nil && format != upload.format {
+			_ = f.Close()
+			return nil, errors.New("image type changed since attachment was selected")
+		}
+	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() { _ = f.Close() }()
 
-	if format != req.upload.format {
-		return nil, errors.New("image type changed since attachment was selected")
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	if upload.original != nil && (!os.SameFile(info, upload.original) || info.Size() != upload.original.Size() ||
+		!info.ModTime().Equal(upload.original.ModTime())) {
+		return nil, errors.New("attachment changed after selection")
 	}
 
 	file, err := uploader.NewUploader(api).WithThreads(1).FromFile(ctx, f)
@@ -192,14 +252,27 @@ func sendImage(ctx context.Context, api *tg.Client, req request, caption string,
 	}
 
 	var media tg.InputMediaClass = &tg.InputMediaUploadedPhoto{File: file}
-	if format == "gif" {
+
+	if document {
+		name := filepath.Base(upload.path)
+		if upload.temporary {
+			name = "Screenshot.png"
+		}
+
+		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
+		if parsed, _, parseErr := mime.ParseMediaType(contentType); parseErr == nil {
+			contentType = parsed
+		} else {
+			contentType = "application/octet-stream"
+		}
+
 		media = &tg.InputMediaUploadedDocument{
-			File: file, MimeType: "image/gif",
-			Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeFilename{FileName: filepath.Base(req.upload.path)}},
+			File: file, MimeType: contentType, ForceFile: true,
+			Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeFilename{FileName: name}},
 		}
 	}
 
 	return api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{
-		Peer: req.chat.input, Media: media, Message: caption, Entities: entities, RandomID: req.upload.randomID, ReplyTo: req.inputReply(),
+		Peer: req.chat.input, Media: media, Message: caption, Entities: entities, RandomID: req.randomID, ReplyTo: req.inputReply(),
 	})
 }

@@ -7,13 +7,30 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/tg"
 )
 
 type historyInvoker func(*tg.MessagesGetHistoryRequest) []tg.MessageClass
+
+func TestChatListSeparatesRowsAtMinimumWidth(t *testing.T) {
+	a := app{ready: true, chats: []chat{
+		{title: "Карманные компьютеры", unread: unreadState{count: 1200, mentions: 1}},
+		{title: "Лена"},
+	}}
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, minTerminalCols, minTerminalRows); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, part := range []string{"Tab Archive", "\x1b[3;2H\x1b[7m", "\x1b[3;2H›", "Карманные к…", "\x1b[3;17H999+@", "\x1b[4;2H╵"} {
+		if !strings.Contains(screen.String(), part) {
+			t.Fatalf("chat list missing %q: %q", part, screen.String())
+		}
+	}
+}
 
 func (f historyInvoker) Invoke(_ context.Context, input bin.Encoder, output bin.Decoder) error {
 	output.(*tg.MessagesMessagesBox).Messages = &tg.MessagesMessages{Messages: f(input.(*tg.MessagesGetHistoryRequest))}
@@ -122,7 +139,7 @@ func TestUnreadAndNotifications(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if title := a.notification(arrived); title != "Incoming" {
+	if title := a.notification(arrived, true).title; title != "Incoming" {
 		t.Fatalf("notification title: %q", title)
 	}
 
@@ -133,9 +150,8 @@ func TestUnreadAndNotifications(t *testing.T) {
 		t.Fatalf("active chat, pinned order or unread badge changed incorrectly")
 	}
 
-	a.chats[1].muteUntil = int(time.Now().Add(time.Hour).Unix())
-	if title := a.notification(arrived); title != "" {
-		t.Fatalf("muted chat notified: %q", title)
+	if title := a.notification(arrived, true).title; title != "" {
+		t.Fatalf("duplicate message notified: %q", title)
 	}
 
 	a.receive(nil, serverEvent{kind: "read", chat: incoming, unread: unreadState{inboxID: 11}})

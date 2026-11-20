@@ -107,6 +107,28 @@ func (a *app) newChatMessage(e serverEvent) {
 }
 
 func markRead(ctx context.Context, api *tg.Client, req request) (unreadState, error) {
+	if req.chat.threadID != 0 {
+		ok, err := api.MessagesReadDiscussion(ctx, &tg.MessagesReadDiscussionRequest{
+			Peer: req.chat.input, MsgID: req.chat.threadID, ReadMaxID: req.anchor,
+		})
+		if err != nil {
+			return unreadState{}, err
+		}
+
+		if !ok {
+			return unreadState{}, fmt.Errorf("marking the thread as read was declined")
+		}
+
+		state := req.chat.unread
+
+		state.inboxID = max(state.inboxID, req.anchor)
+		if req.anchor >= state.topID {
+			state.count, state.mentions = 0, 0
+		}
+
+		return state, nil
+	}
+
 	peer := &tg.InputDialogPeer{Peer: req.chat.input}
 	switch input := req.chat.input.(type) {
 	case *tg.InputPeerChannel:
@@ -148,13 +170,12 @@ func markRead(ctx context.Context, api *tg.Client, req request) (unreadState, er
 }
 
 func (a *app) markVisibleRead(out chan<- request) {
-	if !a.open || a.demo || !a.focused || a.offset != 0 || a.newerTrimmed || len(a.log) == 0 ||
-		a.pending != "" || a.autoReadPending || a.prefetching || a.authorLookup || a.searching || a.imagePath ||
-		a.serverResults != nil || a.forwardIDs != nil || a.confirmDelete != nil || a.linkChoices != nil {
+	if a.demo || !a.canSeeHistory() || a.offset != 0 || a.newerTrimmed || len(a.log) == 0 ||
+		a.pending != "" || a.autoReadPending || a.prefetching || a.authorLookup {
 		return
 	}
 
-	current := a.chats[a.selected]
+	current := a.currentChat()
 	unread := current.unread
 
 	anchor := a.log[0].id

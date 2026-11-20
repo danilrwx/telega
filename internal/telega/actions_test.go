@@ -34,9 +34,9 @@ func TestMessageLinks(t *testing.T) {
 	links := messageLinks(text, entities, messageSpans(entities))
 
 	want := []messageLink{
-		{url: "https://example.com/actual"},
+		{url: "https://example.com/actual", label: "label"},
 		{url: "https://example.org"},
-		{url: "tg://resolve?domain=example", hidden: true},
+		{url: "tg://resolve?domain=example", label: "hidden", hidden: true},
 	}
 	if !slices.Equal(links, want) {
 		t.Fatalf("links = %+v", links)
@@ -44,6 +44,17 @@ func TestMessageLinks(t *testing.T) {
 
 	a := app{}
 	a.chooseLink(message{id: 1, links: links})
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+
+	if output := screen.String(); !strings.Contains(output, "› label") ||
+		!strings.Contains(output, "\x1b[23;2Hhttps://example.com/actual") || strings.Contains(output, "hidden") {
+		t.Fatalf("unexpected link chooser: %q", output)
+	}
+
 	a.linkInput(key{text: "j"})
 	a.linkInput(key{name: "enter"})
 
@@ -157,7 +168,7 @@ func TestImageStagingAndUpload(t *testing.T) {
 	t.Setenv("DISPLAY", "")
 	t.Setenv("TELEGA_TEST_IMAGE", path)
 
-	staged, err := stageImage(t.Context(), request{kind: "clipboard"}, dir)
+	staged, err := stageAttachment(t.Context(), request{kind: "clipboard"}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +230,7 @@ func TestImageStagingAndUpload(t *testing.T) {
 			parts++
 			output.(*tg.BoolBox).Bool = &tg.BoolTrue{}
 		case *tg.MessagesSendMediaRequest:
-			if _, ok := query.Media.(*tg.InputMediaUploadedPhoto); !ok || query.Message != caption || query.RandomID != staged.randomID {
+			if _, ok := query.Media.(*tg.InputMediaUploadedPhoto); !ok || query.Message != caption || query.RandomID != req.randomID {
 				t.Fatal("wrong image or caption sent to Telegram")
 			}
 

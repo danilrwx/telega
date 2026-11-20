@@ -11,7 +11,7 @@ type chatPosition struct {
 }
 
 func (a *app) position() chatPosition {
-	pos := chatPosition{chat: a.chats[a.selected].key}
+	pos := chatPosition{chat: a.currentChat().key}
 	if len(a.log) != 0 {
 		pos.id = a.log[a.offset].id
 	}
@@ -24,10 +24,20 @@ func (a *app) requestJump(out chan<- request, kind string, target chatPosition) 
 		return
 	}
 
-	index := slices.IndexFunc(a.chats, func(c chat) bool { return c.key == target.chat })
-	if index < 0 {
-		a.status = "Original chat is outside the loaded chat list"
-		return
+	destination := a.currentChat()
+	if destination.key != target.chat {
+		if a.thread != nil {
+			a.status = "Go back to the parent chat to jump to another conversation"
+			return
+		}
+
+		index := slices.IndexFunc(a.chats, func(c chat) bool { return c.key == target.chat })
+		if index < 0 {
+			a.status = "Original chat is outside the loaded chat list"
+			return
+		}
+
+		destination = a.chats[index]
 	}
 
 	origin := a.position()
@@ -46,7 +56,7 @@ func (a *app) requestJump(out chan<- request, kind string, target chatPosition) 
 	}
 
 	a.jumpOrigin = origin
-	a.ask(out, request{kind: kind, chat: a.chats[index], anchor: target.id})
+	a.ask(out, request{kind: kind, chat: destination, anchor: target.id})
 }
 
 func (a *app) recordJump(kind string, origin chatPosition, targetID int) {
@@ -55,12 +65,13 @@ func (a *app) recordJump(kind string, origin chatPosition, targetID int) {
 		return
 	}
 
-	if origin.id == 0 || origin.chat == a.chats[a.selected].key && origin.id == targetID {
+	if origin.id == 0 || origin.chat == a.currentChat().key && origin.id == targetID {
 		return
 	}
 
 	if len(a.jumps) == 32 {
 		a.jumps = slices.Delete(a.jumps, 0, 1)
+		a.threadJumpBase = max(0, a.threadJumpBase-1)
 	}
 
 	a.jumps = append(a.jumps, origin)
@@ -69,8 +80,12 @@ func (a *app) recordJump(kind string, origin chatPosition, targetID int) {
 func (a *app) receiveJump(e serverEvent) {
 	a.pending = ""
 
-	index := slices.IndexFunc(a.chats, func(c chat) bool { return c.key == e.chat })
-	if index < 0 || len(e.log) == 0 {
+	index := a.selected
+	if a.thread == nil {
+		index = slices.IndexFunc(a.chats, func(c chat) bool { return c.key == e.chat })
+	}
+
+	if index < 0 || len(e.log) == 0 || a.thread != nil && !a.inConversation(e) {
 		a.status = "Message is unavailable"
 		if e.kind == "unread" {
 			a.status = "No unread messages found"
@@ -92,7 +107,7 @@ func (a *app) receiveJump(e serverEvent) {
 
 	a.log, a.offset, a.status = e.log, i, ""
 	a.olderEnd = false
-	a.newerTrimmed = e.log[0].id < a.chats[index].unread.topID
+	a.newerTrimmed = e.log[0].id < a.currentChat().unread.topID
 	a.prefetchAnchor = 0
 	a.recordJump(e.kind, a.jumpOrigin, e.anchor)
 }
@@ -114,7 +129,7 @@ func (a *app) jumpToReply(out chan<- request) {
 		return
 	}
 
-	target := chatPosition{chat: a.chats[a.selected].key, id: reply.id}
+	target := chatPosition{chat: a.currentChat().key, id: reply.id}
 	if reply.peer.id != 0 {
 		target.chat = reply.peer
 	}
@@ -123,7 +138,12 @@ func (a *app) jumpToReply(out chan<- request) {
 }
 
 func (a *app) backToMessage(out chan<- request) {
-	if len(a.jumps) == 0 {
+	if a.thread != nil && len(a.jumps) == a.threadJumpBase && a.pending == "" {
+		a.leaveThread(out)
+		return
+	}
+
+	if len(a.jumps) == a.threadJumpBase {
 		a.status = "No previous message position"
 		return
 	}
@@ -132,7 +152,7 @@ func (a *app) backToMessage(out chan<- request) {
 }
 
 func (a *app) jumpToUnread(out chan<- request) {
-	current := a.chats[a.selected]
+	current := a.currentChat()
 	if current.unread.count <= 0 {
 		a.status = "No unread messages"
 		return
@@ -143,7 +163,7 @@ func (a *app) jumpToUnread(out chan<- request) {
 
 func (a *app) prefetchHistory(out chan<- request) {
 	if !a.open || a.demo || a.composing || a.imagePath || a.searching || a.serverResults != nil ||
-		a.forwardIDs != nil || a.confirmDelete != nil || a.linkChoices != nil ||
+		len(a.topicEntries) > 0 || a.forwardIDs != nil || a.confirmDelete != nil || a.linkChoices != nil ||
 		a.pending != "" || a.prefetching || a.authorLookup || a.autoReadPending || a.olderEnd || a.historyRoom <= 0 || len(a.log) == 0 ||
 		len(a.log)+historyLimit-historyWindow > a.offset {
 		return
@@ -155,7 +175,7 @@ func (a *app) prefetchHistory(out chan<- request) {
 	}
 
 	select {
-	case out <- request{kind: "prefetch", chat: a.chats[a.selected], anchor: anchor}:
+	case out <- request{kind: "prefetch", chat: a.currentChat(), anchor: anchor}:
 		a.prefetching, a.prefetchAnchor = true, anchor
 	default:
 	}
@@ -163,7 +183,7 @@ func (a *app) prefetchHistory(out chan<- request) {
 
 func (a *app) receiveSearch(e serverEvent) {
 	a.pending = ""
-	if !a.open || a.chats[a.selected].key != e.chat || a.serverQuery == "" {
+	if !a.inConversation(e) || a.serverQuery == "" {
 		return
 	}
 
@@ -201,7 +221,7 @@ func (a *app) serverSearchInput(k key, out chan<- request) {
 		return
 	}
 
-	query := request{kind: "searchHistory", chat: a.chats[a.selected], text: a.serverQuery}
+	query := request{kind: "searchHistory", chat: a.currentChat(), text: a.serverQuery}
 	switch {
 	case k.name == "enter":
 		target := a.serverResults[a.serverIndex].id

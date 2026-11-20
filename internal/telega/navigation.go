@@ -54,7 +54,7 @@ func (a *app) searchInput(k key, out chan<- request) bool {
 			query := strings.TrimSpace(string(a.search))
 			if query != "" && a.pending == "" {
 				a.serverQuery, a.serverPrevious, a.serverAnchor = query, nil, 0
-				a.ask(out, request{kind: "searchHistory", chat: a.chats[a.selected], text: query})
+				a.ask(out, request{kind: "searchHistory", chat: a.currentChat(), text: query})
 			}
 
 			return true
@@ -131,10 +131,10 @@ func (a *app) scroll(out chan<- request, step int) {
 	next := a.offset + step
 	switch {
 	case next >= len(a.log) && !a.olderEnd && a.pending == "" && !a.prefetching && !a.demo:
-		a.ask(out, request{kind: "older", chat: a.chats[a.selected], anchor: a.log[len(a.log)-1].id, step: next - len(a.log) + 1})
+		a.ask(out, request{kind: "older", chat: a.currentChat(), anchor: a.log[len(a.log)-1].id, step: next - len(a.log) + 1})
 		a.offset = len(a.log) - 1
 	case next < 0 && a.newerTrimmed && a.pending == "":
-		a.ask(out, request{kind: "newer", chat: a.chats[a.selected], anchor: a.log[0].id, step: next})
+		a.ask(out, request{kind: "newer", chat: a.currentChat(), anchor: a.log[0].id, step: next})
 		a.offset = 0
 	default:
 		a.offset = min(max(0, next), len(a.log)-1)

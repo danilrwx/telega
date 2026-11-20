@@ -76,13 +76,15 @@ func Run(opts Options) error {
 	requests, events := make(chan request, 1), make(chan serverEvent, 24)
 
 	a := app{demo: demo, ready: demo, focused: true}
-	defer a.discardImage()
+	defer a.discardAttachment()
 
-	titles := make(chan string, 16)
+	notices := make(chan desktopNotice, 16)
+	noticeChecks := make(chan noticeCheck, 16)
+	noticeFailures := make(chan desktopNotice, 1)
 
 	notifier, _ := exec.LookPath("notify-send")
 	if !demo && notifier != "" {
-		go notifyDesktop(ctx, notifier, titles)
+		go notifyDesktop(ctx, notifier, notices, noticeFailures)
 	}
 
 	if demo {
@@ -95,9 +97,7 @@ func Run(opts Options) error {
 		go func() {
 			defer close(done)
 
-			if err := telegramLoop(ctx, cfg, opts.QR, requests, events); err != nil && ctx.Err() == nil {
-				_ = emit(ctx, events, serverEvent{kind: "offline", text: err.Error()})
-			}
+			runTelegram(ctx, cfg, opts.QR, requests, events, noticeChecks)
 		}()
 
 		defer func() {
@@ -120,7 +120,8 @@ func Run(opts Options) error {
 			return err
 		}
 
-		if w >= minTerminalCols && h >= minTerminalRows {
+		viewportOK := w >= minTerminalCols && h >= minTerminalRows
+		if viewportOK {
 			a.markVisibleRead(requests)
 		}
 
@@ -131,15 +132,24 @@ func Run(opts Options) error {
 		case <-ctx.Done():
 			return nil
 		case <-resize:
+		case notice := <-noticeFailures:
+			a.alertInTerminal(os.Stdout, notice)
 		case e := <-events:
-			if title := a.notification(e); title != "" {
+			if e.kind == "notify" {
+				notice := e.notice
 				if notifier == "" {
-					_, _ = io.WriteString(os.Stdout, "\a")
+					a.alertInTerminal(os.Stdout, notice)
 				} else {
 					select {
-					case titles <- title:
+					case notices <- notice:
 					default:
+						a.alertInTerminal(os.Stdout, notice)
 					}
+				}
+			} else if notice := a.notification(e, viewportOK); notice.body != "" {
+				select {
+				case noticeChecks <- a.noticeCheck(e, notice):
+				default:
 				}
 			}
 

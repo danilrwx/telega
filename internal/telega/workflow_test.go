@@ -40,7 +40,7 @@ func TestHistoryPrefetchAtHalfScreen(t *testing.T) {
 		t.Fatal("a full viewport should not load another page")
 	}
 
-	a.offset = 88
+	a.offset = 93
 	if err := paint(&screen, &a, 80, 24); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestSwitchChatRestoresReplyAndCaption(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a.staged = &uploadImage{path: path, temporary: true}
+	a.staged = &uploadAttachment{path: path, temporary: true}
 	a.input(key{name: "nextChat"}, out)
 
 	if req := <-out; req.kind != "history" || req.chat.key != second.key || a.composing {
@@ -255,8 +255,9 @@ func TestEditCopyAndAuthor(t *testing.T) {
 	a := app{ready: true, open: true, chats: []chat{c}, log: []message{msg}}
 	out := make(chan request, 1)
 
-	if lines := a.messageLines(msg, 60, 4); !strings.Contains(lines[0], "Ada Lovelace") {
-		t.Fatalf("author is missing from %q", lines)
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 96, 24); err != nil || !strings.Contains(screen.String(), "Ada Lovelace") {
+		t.Fatalf("author is missing from the rendered conversation: %v", err)
 	}
 
 	a.input(key{text: "e"}, out)

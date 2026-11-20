@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -22,6 +21,7 @@ import (
 
 type attachment struct {
 	name     string
+	kind     string
 	dc       int
 	size     int64
 	location tg.InputFileLocationClass
@@ -35,18 +35,24 @@ func fileFromMedia(media tg.MessageMediaClass) *attachment {
 			return nil
 		}
 
+		file := &attachment{dc: doc.DCID, size: doc.Size, location: doc.AsInputDocumentFileLocation("")}
+		if strings.HasPrefix(doc.MimeType, "video/") {
+			file.kind = "Video"
+		}
+
 		for _, attr := range doc.Attributes {
 			if name, ok := attr.(*tg.DocumentAttributeFilename); ok && name.FileName != "" {
-				return &attachment{fileName(name.FileName), doc.DCID, doc.Size, doc.AsInputDocumentFileLocation("")}
+				file.name = fileName(name.FileName)
+				return file
 			}
 		}
 
-		name := "attachment"
+		file.name = "attachment"
 		if ext, _ := mime.ExtensionsByType(doc.MimeType); len(ext) > 0 {
-			name += ext[0]
+			file.name += ext[0]
 		}
 
-		return &attachment{name, doc.DCID, doc.Size, doc.AsInputDocumentFileLocation("")}
+		return file
 	case *tg.MessageMediaPhoto:
 		photo, ok := media.Photo.(*tg.Photo)
 		if !ok {
@@ -72,7 +78,10 @@ func fileFromMedia(media tg.MessageMediaClass) *attachment {
 		}
 
 		if kind != "" {
-			return &attachment{"photo.jpg", photo.DCID, int64(size), photo.AsInputPhotoFileLocation(kind)}
+			return &attachment{
+				name: "photo.jpg", kind: "Photo", dc: photo.DCID, size: int64(size),
+				location: photo.AsInputPhotoFileLocation(kind),
+			}
 		}
 	}
 
@@ -183,29 +192,6 @@ func openSystem(target string) (*exec.Cmd, error) {
 	return cmd, cmd.Start()
 }
 
-func notifyDesktop(ctx context.Context, executable string, titles <-chan string) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case title := <-titles:
-			deadline, cancel := context.WithTimeout(ctx, 2*time.Second)
-			cmd := exec.CommandContext(deadline, executable, "--app-name=telega", "--", title, "New Telegram message")
-
-			if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
-				bus := fmt.Sprintf("/run/user/%d/bus", os.Getuid())
-				if info, err := os.Stat(bus); err == nil && info.Mode()&os.ModeSocket != 0 {
-					cmd.Env = append(os.Environ(), "DBUS_SESSION_BUS_ADDRESS=unix:path="+bus)
-				}
-			}
-
-			_ = cmd.Run()
-
-			cancel()
-		}
-	}
-}
-
 func copyClipboard(ctx context.Context, out io.Writer, text string) error {
 	for _, tool := range []struct {
 		display, name string
@@ -233,25 +219,4 @@ func copyClipboard(ctx context.Context, out io.Writer, text string) error {
 	_, err := fmt.Fprintf(out, "\x1b]52;c;%s\x07", base64.StdEncoding.EncodeToString([]byte(text)))
 
 	return err
-}
-
-func (a *app) notification(e serverEvent) string {
-	if !a.ready || e.kind != "new" || len(e.log) == 0 || e.log[0].out {
-		return ""
-	}
-
-	if a.open && a.focused && a.chats[a.selected].key == e.chat && !a.newerTrimmed && a.offset == 0 {
-		return ""
-	}
-
-	if i := slices.IndexFunc(a.chats, func(c chat) bool { return c.key == e.chat }); i >= 0 {
-		c := a.chats[i]
-		if int64(c.muteUntil) > time.Now().Unix() || e.log[0].id <= max(c.unread.topID, c.unread.inboxID) {
-			return ""
-		}
-
-		return strings.Join(strings.Fields(c.title), " ")
-	}
-
-	return "Telegram"
 }
