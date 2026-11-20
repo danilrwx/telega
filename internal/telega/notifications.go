@@ -203,6 +203,18 @@ func (a *app) alertInTerminal(out io.Writer, notice desktopNotice) {
 	a.noticeStatus = "Terminal alert · " + notice.title + " · " + notice.body
 }
 
+func (a *app) deliverNotice(out io.Writer, desktop chan<- desktopNotice, notice desktopNotice, inTmux bool) {
+	select {
+	case desktop <- notice:
+		if !inTmux {
+			return
+		}
+	default:
+	}
+
+	a.alertInTerminal(out, notice)
+}
+
 func (a *app) canSeeHistory() bool {
 	return a.open && a.focused && !a.searching && !a.imagePath &&
 		len(a.topicEntries) == 0 && a.serverResults == nil && a.forwardIDs == nil && a.confirmDelete == nil && a.linkChoices == nil

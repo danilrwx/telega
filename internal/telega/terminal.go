@@ -84,12 +84,18 @@ func Run(opts Options) error {
 	a.textReactions = reactionMode == "text" || reactionMode != "emoji" && (console || a.colors == &ansiDarkPalette)
 	defer a.discardAttachment()
 
-	notices := make(chan desktopNotice, 16)
+	inTmux := os.Getenv("TMUX") != ""
 	noticeChecks := make(chan noticeCheck, 16)
-	noticeFailures := make(chan desktopNotice, 1)
+
+	var notices, noticeFailures chan desktopNotice
 
 	notifier, _ := exec.LookPath("notify-send")
 	if !demo && notifier != "" {
+		notices = make(chan desktopNotice, 16)
+		if !inTmux {
+			noticeFailures = make(chan desktopNotice, 1)
+		}
+
 		go notifyDesktop(ctx, notifier, notices, noticeFailures)
 	}
 
@@ -142,16 +148,7 @@ func Run(opts Options) error {
 			a.alertInTerminal(os.Stdout, notice)
 		case e := <-events:
 			if e.kind == "notify" {
-				notice := e.notice
-				if notifier == "" {
-					a.alertInTerminal(os.Stdout, notice)
-				} else {
-					select {
-					case notices <- notice:
-					default:
-						a.alertInTerminal(os.Stdout, notice)
-					}
-				}
+				a.deliverNotice(os.Stdout, notices, e.notice, inTmux)
 			} else if notice := a.notification(e, viewportOK); notice.body != "" {
 				select {
 				case noticeChecks <- a.noticeCheck(e, notice):

@@ -44,7 +44,7 @@ install -m 755 telega "$HOME/.local/bin/telega"
 - **Keep context in view.** Read formatted messages, dates, replies, and reactions. Search both the loaded conversation and Telegram history, or follow a reply or forwarded source.
 - **Write from the keyboard.** Send multiline messages and code, paste a screenshot with a caption, or select several messages to forward or delete. Failed sends keep their drafts while the client is running.
 
-The interface works in a text console with ANSI colors and text labels for reactions. Desktop integration adds clipboard images, system openers, and desktop alerts where supported.
+The interface works in a text console with ANSI colors and text labels for reactions. In tmux, notifications highlight the window when bell monitoring is enabled. Desktop integration adds clipboard images, system openers, and desktop alerts where supported.
 
 ## Your account and data
 

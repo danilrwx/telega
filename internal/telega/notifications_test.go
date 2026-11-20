@@ -200,3 +200,30 @@ func TestNotificationFailureShowsTerminalAlert(t *testing.T) {
 		t.Fatal("gaining focus should keep the fallback visible")
 	}
 }
+
+func TestNotificationRingsTmuxWithDesktopNotifier(t *testing.T) {
+	a := app{}
+	notice := desktopNotice{title: "Example Chat", body: "New message"}
+	notices := make(chan desktopNotice, 1)
+
+	var terminal bytes.Buffer
+
+	a.deliverNotice(&terminal, notices, notice, true)
+
+	if terminal.String() != "\a" || len(notices) != 1 || <-notices != notice {
+		t.Fatal("tmux should get one bell as well as the desktop notice")
+	}
+
+	terminal.Reset()
+	a.deliverNotice(&terminal, notices, notice, false)
+
+	if terminal.Len() != 0 || len(notices) != 1 {
+		t.Fatal("desktop notice outside tmux should stay quiet")
+	}
+
+	a.deliverNotice(&terminal, notices, notice, false)
+
+	if terminal.String() != "\a" {
+		t.Fatal("a full desktop queue should fall back to a terminal bell")
+	}
+}
