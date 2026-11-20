@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+
+	"github.com/danilrwx/telega/internal/telega"
 )
 
 var version = "dev"
@@ -30,7 +32,13 @@ func main() {
 	case len(args) == 1 && args[0] == "--version":
 		fmt.Println("telega", appVersion())
 	case len(args) == 0 || len(args) == 1 && (args[0] == "--demo" || args[0] == "--qr"):
-		if err := run(len(args) != 0 && args[0] == "--demo", len(args) != 0 && args[0] == "--qr"); err != nil {
+		opts := telega.Options{Version: appVersion()}
+		if len(args) != 0 {
+			opts.Demo = args[0] == "--demo"
+			opts.QR = args[0] == "--qr"
+		}
+
+		if err := telega.Run(opts); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

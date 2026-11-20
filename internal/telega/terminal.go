@@ -1,4 +1,4 @@
-package main
+package telega
 
 import (
 	"context"
@@ -11,21 +11,37 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/danilrwx/telega/internal/session"
 	"golang.org/x/term"
 )
 
-func run(demo, qr bool) error {
+// Options configure the terminal client at startup.
+type Options struct {
+	Demo    bool
+	QR      bool
+	Version string
+}
+
+type config struct {
+	session.Account
+	scratch, version string
+}
+
+// Run starts the terminal client and waits for it to exit.
+func Run(opts Options) error {
+	demo := opts.Demo
+
 	in, out := int(os.Stdin.Fd()), int(os.Stdout.Fd())
 	if !term.IsTerminal(in) || !term.IsTerminal(out) {
 		return errors.New("telega needs a terminal")
 	}
 
-	var cfg config
+	cfg := config{version: opts.Version}
 
 	if !demo {
 		var err error
 
-		cfg, err = loadConfig()
+		cfg.Account, err = session.Load()
 		if err != nil {
 			return err
 		}
@@ -78,7 +94,7 @@ func run(demo, qr bool) error {
 		go func() {
 			defer close(done)
 
-			if err := telegramLoop(ctx, cfg, qr, requests, events); err != nil && ctx.Err() == nil {
+			if err := telegramLoop(ctx, cfg, opts.QR, requests, events); err != nil && ctx.Err() == nil {
 				_ = emit(ctx, events, serverEvent{kind: "offline", text: err.Error()})
 			}
 		}()

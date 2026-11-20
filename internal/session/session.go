@@ -1,4 +1,4 @@
-package main
+package session
 
 import (
 	"context"
@@ -10,34 +10,35 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gotd/td/session"
+	gotdsession "github.com/gotd/td/session"
 	"golang.org/x/term"
 )
 
-type config struct {
-	id      int
-	hash    string
-	path    string
-	scratch string
+// Account provides the credentials and storage for the Telegram connection.
+type Account struct {
+	APIID   int
+	APIHash string
+	Storage gotdsession.Storage
 }
 
-func parseCredentials(idText, hash, dir string) (config, error) {
+func parseCredentials(idText, hash, dir string) (Account, error) {
 	id, err := strconv.ParseInt(idText, 10, 32)
 
 	_, invalidHash := hex.DecodeString(hash)
 	if err != nil || id < 1 || len(hash) != 32 || invalidHash != nil {
-		return config{}, errors.New("enter a valid api_id and api_hash from https://my.telegram.org")
+		return Account{}, errors.New("enter a valid api_id and api_hash from https://my.telegram.org")
 	}
 
-	return config{id: int(id), hash: hash, path: filepath.Join(dir, "gotd.session")}, nil
+	return Account{APIID: int(id), APIHash: hash, Storage: privateFile{filepath.Join(dir, "gotd.session")}}, nil
 }
 
-func loadConfig() (config, error) {
+// Load reads local credentials or prompts for them on the first run.
+func Load() (Account, error) {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return config{}, err
+			return Account{}, err
 		}
 
 		base = filepath.Join(home, ".local", "share")
@@ -45,16 +46,16 @@ func loadConfig() (config, error) {
 
 	dir := filepath.Join(base, "telega")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return config{}, err
+		return Account{}, err
 	}
 
 	info, err := os.Lstat(dir)
 	if err != nil {
-		return config{}, err
+		return Account{}, err
 	}
 
 	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
-		return config{}, fmt.Errorf("%s must be a private directory (chmod 700)", dir)
+		return Account{}, fmt.Errorf("%s must be a private directory (chmod 700)", dir)
 	}
 
 	id, idSet := os.LookupEnv("TELEGA_API_ID")
@@ -68,7 +69,7 @@ func loadConfig() (config, error) {
 
 	saved, err := file.load()
 	if err != nil {
-		return config{}, err
+		return Account{}, err
 	}
 
 	if saved != nil {
@@ -76,7 +77,7 @@ func loadConfig() (config, error) {
 		clear(saved)
 
 		if !ok {
-			return config{}, fmt.Errorf("invalid Telegram API credentials in %s", file.path)
+			return Account{}, fmt.Errorf("invalid Telegram API credentials in %s", file.path)
 		}
 
 		return parseCredentials(id, hash, dir)
@@ -86,7 +87,7 @@ func loadConfig() (config, error) {
 	fmt.Print("API ID: ")
 
 	if _, err := fmt.Fscanln(os.Stdin, &id); err != nil {
-		return config{}, fmt.Errorf("read API ID: %w", err)
+		return Account{}, fmt.Errorf("read API ID: %w", err)
 	}
 
 	fmt.Print("API hash: ")
@@ -96,18 +97,18 @@ func loadConfig() (config, error) {
 	fmt.Println()
 
 	if err != nil {
-		return config{}, err
+		return Account{}, err
 	}
 
 	cfg, err := parseCredentials(id, strings.TrimSpace(string(secret)), dir)
 	clear(secret)
 
 	if err != nil {
-		return config{}, err
+		return Account{}, err
 	}
 
-	if err := file.store(fmt.Appendf(nil, "%d\n%s\n", cfg.id, cfg.hash)); err != nil {
-		return config{}, err
+	if err := file.store(fmt.Appendf(nil, "%d\n%s\n", cfg.APIID, cfg.APIHash)); err != nil {
+		return Account{}, err
 	}
 
 	return cfg, nil
@@ -118,7 +119,7 @@ type privateFile struct{ path string }
 func (s privateFile) LoadSession(context.Context) ([]byte, error) {
 	data, err := s.load()
 	if data == nil && err == nil {
-		return nil, session.ErrNotFound
+		return nil, gotdsession.ErrNotFound
 	}
 
 	return data, err

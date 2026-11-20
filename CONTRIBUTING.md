@@ -10,7 +10,11 @@ make
 ./telega --demo
 ```
 
-Tests use local fixtures and simulated Telegram responses. The terminal state, input and rendering are in `app.go`, `input.go` and `view.go`. `telegram.go` owns the connection and dispatches requests. Login and private session storage live in `login.go` and `session.go`.
+Tests use local fixtures and simulated Telegram responses.
+
+- `cmd/telega` handles command-line arguments and version reporting.
+- `internal/telega` handles terminal input, rendering, chat state, and the Telegram connection.
+- `internal/session` loads credentials and reads and writes the private session file.
 
 An annotated `v*` tag runs the release workflow. The tag annotation becomes the release notes. CI builds archives for Linux and OpenBSD on amd64, arm64 and ARMv7, then publishes them with `SHA256SUMS` after the checks pass. To test the packaging command locally, run:
 

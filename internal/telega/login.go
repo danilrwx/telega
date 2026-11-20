@@ -1,4 +1,4 @@
-package main
+package telega
 
 import (
 	"context"
@@ -52,7 +52,7 @@ func login(ctx context.Context, c *telegram.Client, ui loginUI, qrMode bool, log
 	}
 
 	if qrMode {
-		q := qrlogin.NewQR(c.API(), cfg.id, cfg.hash, qrlogin.Options{
+		q := qrlogin.NewQR(c.API(), cfg.APIID, cfg.APIHash, qrlogin.Options{
 			Migrate: c.MigrateTo,
 			Password: func(ctx context.Context) (string, error) {
 				return ui.prompt(ctx, "Two-step password", true, "")

@@ -8,7 +8,7 @@ GO_FLAGS = -mod=readonly -p=1 -gcflags='github.com/gotd/td/tg=-l -c=1'
 all: build
 
 build:
-	$(GO_ENV) $(GO) build $(GO_FLAGS) -trimpath -ldflags='-s -w -X main.version=$(VERSION)' -o "$(OUTPUT).new" .
+	$(GO_ENV) $(GO) build $(GO_FLAGS) -trimpath -ldflags='-s -w -X main.version=$(VERSION)' -o "$(OUTPUT).new" ./cmd/telega
 	mv -f "$(OUTPUT).new" "$(OUTPUT)"
 
 dm250:

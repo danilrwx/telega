@@ -1,4 +1,4 @@
-package main
+package telega
 
 import (
 	"context"
@@ -360,13 +360,13 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 	dispatch.OnAnyDeleteMessages(func(ctx context.Context, _ tg.Entities, channel int64, ids []int) error {
 		return emit(ctx, events, serverEvent{kind: "delete", chat: peerKey{'c', channel}, ids: ids})
 	})
-	client := telegram.NewClient(cfg.id, cfg.hash, telegram.Options{
-		SessionStorage: privateFile{cfg.path},
+	client := telegram.NewClient(cfg.APIID, cfg.APIHash, telegram.Options{
+		SessionStorage: cfg.Storage,
 		UpdateHandler: telegram.UpdateHandlerFunc(func(ctx context.Context, update tg.UpdatesClass) error {
 			return dispatchUpdates(ctx, dispatch, onNew, update)
 		}),
 		FilePoolSize: 1,
-		Device:       telegram.DeviceConfig{DeviceModel: "telega terminal", AppVersion: strings.TrimPrefix(appVersion(), "v")},
+		Device:       telegram.DeviceConfig{DeviceModel: "telega terminal", AppVersion: strings.TrimPrefix(cfg.version, "v")},
 	})
 
 	return client.Run(ctx, func(ctx context.Context) error {

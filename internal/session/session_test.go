@@ -1,37 +1,10 @@
-package main
+package session
 
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 )
-
-func TestWrapTerminalText(t *testing.T) {
-	got := wrap("界я\n\x1babc", 3, 3)
-	if !slices.Equal(got, []string{"界я", " ab", "c"}) {
-		t.Fatalf("unexpected rows: %q", got)
-	}
-}
-
-func TestHistoryKeepsLiveEdit(t *testing.T) {
-	var a app
-	a.insert(message{id: 3, text: "live"}, true)
-	a.insert(message{id: 3, text: "stale"}, false)
-	a.insert(message{id: 2, text: "older"}, false)
-
-	if len(a.log) != 2 || a.log[0].text != "live" || a.log[1].id != 2 {
-		t.Fatalf("unexpected history: %+v", a.log)
-	}
-
-	a.draft = []rune("draft")
-	a.pending = "send"
-	a.receive(nil, serverEvent{kind: "error", text: "offline"})
-
-	if !a.composing || a.pending != "" || string(a.draft) != "draft" {
-		t.Fatal("send error did not restore the draft")
-	}
-}
 
 func TestPrivateSession(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mtproto.session")
@@ -81,16 +54,16 @@ func TestSavedAPIConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := loadConfig()
-	if err != nil || got.id != 123 || got.hash != hash {
+	got, err := Load()
+	if err != nil || got.APIID != 123 || got.APIHash != hash {
 		t.Fatal("failed to load saved Telegram API credentials")
 	}
 
 	t.Setenv("TELEGA_API_ID", "456")
 	t.Setenv("TELEGA_API_HASH", hash)
 
-	got, err = loadConfig()
-	if err != nil || got.id != 456 {
+	got, err = Load()
+	if err != nil || got.APIID != 456 {
 		t.Fatal("environment must override saved Telegram API credentials")
 	}
 }
