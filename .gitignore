@@ -1,0 +1,10 @@
+/telega
+/telega.new
+/telega-dm250
+/telega-dm250.new
+/target/
+/dist/
+*.session
+*.session.*
+.env
+.env.*
