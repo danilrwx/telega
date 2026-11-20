@@ -5,8 +5,8 @@ go 1.26.0
 require (
 	github.com/gotd/td v0.166.1
 	github.com/rivo/uniseg v0.4.7
-	golang.org/x/sys v0.48.0
-	golang.org/x/term v0.46.0
+	golang.org/x/sys v0.50.0
+	golang.org/x/term v0.48.0
 	rsc.io/qr v0.2.0
 )
 
