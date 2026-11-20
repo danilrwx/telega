@@ -55,5 +55,5 @@ jobs:
         run: |
           test "$(find . -maxdepth 1 -name 'telega_*.tar.gz' | wc -l)" -eq 6
           sha256sum telega_*.tar.gz > SHA256SUMS
-          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag \
+          gh release create "$VERSION" --verify-tag \
             --title "$VERSION" --notes-from-tag telega_*.tar.gz SHA256SUMS
