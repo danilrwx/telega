@@ -4,7 +4,7 @@ Telegram for the terminal. Catch up on chats, search conversations, and reply wi
 
 [Download telega](#install) · [Release notes and checksums](https://github.com/danilrwx/telega/releases/latest)
 
-![The telega offline demo in a dark terminal showing the chat list, date separators, reactions, and a quoted reply](docs/screenshot.png)
+![The telega offline demo in a dark terminal showing the chat list, date separators, reactions, and a quoted reply](docs/demo-dark.png)
 *Offline demo from the current source tree.*
 
 ## Install
