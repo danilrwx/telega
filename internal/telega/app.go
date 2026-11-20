@@ -7,6 +7,8 @@ import (
 
 type app struct {
 	demo, ready, open, composing, masked           bool
+	colors                                         *terminalPalette
+	textReactions                                  bool
 	pending, prompt, status, qr                    string
 	draft                                          []rune
 	draftCursor                                    int

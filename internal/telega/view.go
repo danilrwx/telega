@@ -91,15 +91,9 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	label := func(x, y, width int, value string) {
 		fmt.Fprintf(&b, "\x1b[%d;%dH%s", y, x, wrap(value, width, 1)[0])
 	}
-	bar := func(y int, text string) {
-		fmt.Fprintf(&b, "\x1b[%d;1H\x1b[7m%s", y, strings.Repeat(" ", cols))
-		label(2, y, cols-2, text)
-		b.WriteString("\x1b[0m")
-	}
-
 	if len(a.topicEntries) > 0 {
-		bar(1, a.currentChat().title+" · Topics")
-		bar(rows, "jk choose  Enter open  [/] pages  Esc back")
+		label(2, 1, cols-2, a.currentChat().title+" · Topics")
+		label(2, rows, cols-2, "jk choose  Enter open  [/] pages  Esc back")
 
 		start := max(0, a.topicIndex-rows+4)
 		for i, entry := range a.topicEntries[start:min(len(a.topicEntries), start+rows-3)] {
@@ -124,15 +118,15 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 
 	if a.forwardIDs != nil {
 		if a.forwardConfirm {
-			bar(1, fmt.Sprintf("Forward %d message(s)?", len(a.forwardIDs)))
-			bar(rows, "y send  Esc change recipient")
+			label(2, 1, cols-2, fmt.Sprintf("Forward %d message(s)?", len(a.forwardIDs)))
+			label(2, rows, cols-2, "y send  Esc change recipient")
 
 			for i, line := range wrap("To: "+a.forwardTo.title, cols-2, rows-2) {
 				label(2, i+2, cols-2, line)
 			}
 		} else {
-			bar(1, fmt.Sprintf("Forward %d message(s). Type a chat name", len(a.forwardIDs)))
-			bar(rows, "↑↓ choose  Enter select  Esc cancel")
+			label(2, 1, cols-2, fmt.Sprintf("Forward %d message(s). Type a chat name", len(a.forwardIDs)))
+			label(2, rows, cols-2, "↑↓ choose  Enter select  Esc cancel")
 			label(2, 2, cols-2, "/ "+a.forwardQuery)
 			indexes := a.forwardChats()
 
@@ -156,8 +150,8 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if a.serverResults != nil {
-		bar(1, "Search history / "+a.serverQuery)
-		bar(rows, "jk choose  Enter jump  n/N pages  Esc close")
+		label(2, 1, cols-2, "Search history / "+a.serverQuery)
+		label(2, rows, cols-2, "jk choose  Enter jump  n/N pages  Esc close")
 
 		start := max(0, a.serverIndex-rows+4)
 		for row, msg := range a.serverResults[start:min(len(a.serverResults), start+rows-3)] {
@@ -185,10 +179,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		return err
 	}
 
-	title, keys := "telega", "Esc quit"
-	if a.demo {
-		title += "   /   Demo"
-	}
+	keys := "Esc quit"
 
 	if a.disconnected {
 		keys = "r reconnect  Esc quit"
@@ -234,14 +225,28 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 
 	if a.pickingReaction {
 		keys = "1 👍  2 ❤️  3 🔥  4 😂  5 🎉  6 👎  Esc cancel"
+
+		if a.textReactions {
+			first, second := "1 Like 2 Heart 3 Fire", "4 Laugh 5 Party 6 No"
+
+			keys = first + "  " + second + "  Esc cancel"
+			if len(keys) > cols-2 {
+				label(2, rows-1, cols-2, first)
+
+				keys = second
+			}
+		}
 	}
 
 	if a.pending == "send" || a.pending == "forward" || a.pending == "edit" {
 		keys = "Waiting for Telegram…  Ctrl+C quit"
 	}
 
-	bar(1, title)
-	bar(rows, keys)
+	colors := a.palette()
+	b.WriteString(colors.muted)
+	label(2, rows, cols-2, keys)
+	b.WriteString("\x1b[0m")
+
 	statusRow := rows - 2
 
 	var draftLines []string
@@ -301,7 +306,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		sidebar := cols - 1
 		if wide {
 			sidebar = min(cols/3, 30)
-			for y := 2; y < rows-2; y++ {
+			for y := 1; y < rows-2; y++ {
 				label(sidebar, y, 1, "│")
 			}
 		}
@@ -312,21 +317,23 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 				shortcut = "Tab Chats"
 			}
 
-			label(2, 2, sidebar-3, title)
+			b.WriteString(colors.heading)
+			label(2, 1, sidebar-3, title)
+			b.WriteString("\x1b[0m")
 
 			if uniseg.StringWidth(title)+len(shortcut)+1 <= sidebar-3 {
-				label(sidebar-1-len(shortcut), 2, len(shortcut), shortcut)
+				label(sidebar-1-len(shortcut), 1, len(shortcut), shortcut)
 			}
 
 			indexes := a.visibleChats()
 
-			start := max(0, slices.Index(indexes, a.selected)-rows+6)
-			for row, i := range indexes[start:min(len(indexes), start+rows-5)] {
-				y, marker := row+3, "╵"
+			start := max(0, slices.Index(indexes, a.selected)-rows+5)
+			for row, i := range indexes[start:min(len(indexes), start+rows-4)] {
+				y, marker := row+2, "╵"
 				if i == a.selected {
 					marker = "›"
 
-					fmt.Fprintf(&b, "\x1b[%d;2H\x1b[7m%s", y, strings.Repeat(" ", sidebar-2))
+					fmt.Fprintf(&b, "\x1b[%d;2H%s%s", y, colors.selected, strings.Repeat(" ", sidebar-2))
 				}
 
 				c := a.chats[i]
@@ -356,7 +363,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			}
 
 			if len(indexes) == 0 && a.pending == "" {
-				label(2, 3, sidebar-3, "No matching chats")
+				label(2, 2, sidebar-3, "No matching chats")
 			}
 		}
 
@@ -373,8 +380,8 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	status := a.status
 	if len(a.linkChoices) > 0 {
 		b.WriteString("\x1b[2J")
-		bar(1, "Open link")
-		bar(rows, keys)
+		label(2, 1, cols-2, "Open link")
+		label(2, rows, cols-2, keys)
 
 		start := max(0, a.linkIndex-rows+4)
 		for i, link := range a.linkChoices[start:min(len(a.linkChoices), start+rows-3)] {
@@ -399,10 +406,14 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if a.pickingReaction {
-		status = "Choose a reaction · select the same emoji to remove it"
+		status = "Choose a reaction · select it again to remove"
 
 		if len(a.log) > 0 && a.log[a.offset].myReaction != "" {
 			chosen := a.log[a.offset].myReaction
+			if a.textReactions {
+				chosen = reactionName(chosen)
+			}
+
 			status = "Your reaction: " + chosen + " · select it again to remove"
 		}
 	}

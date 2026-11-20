@@ -32,6 +32,7 @@ func demoHistory(current chat) []message {
 	}
 
 	code, entities := codeBlocks("Quick check on the field unit.\n```sh\n./telega --version\n./telega --demo\n```")
+	nextMorning := morning.AddDate(0, 0, 1)
 
 	return []message{
 		{id: 1, date: morning, authorName: "Mira Chen", text: "The field terminal is on the bench. We can test the ARM build today."},
@@ -40,10 +41,10 @@ func demoHistory(current chat) []message {
 		{id: 4, date: morning.Add(7 * time.Minute), authorName: "Nora Voss", text: "I'll check that the screen is readable outside."},
 		{id: 5, date: morning.Add(9 * time.Minute), authorName: "Theo Park", text: code, spans: messageSpans(entities)},
 		{id: 6, date: morning.Add(12 * time.Minute), out: true, text: "[Attachment]", attachment: &attachment{name: "bench-test.png", kind: "Photo"}},
-		{id: 7, date: morning.Add(15 * time.Minute), authorName: "Nora Voss", text: "The pale theme still reads well with the backlight turned down."},
-		{id: 8, date: morning.Add(17 * time.Minute), authorName: "Theo Park", text: "Clipboard paste worked on the laptop. The caption came through."},
-		{id: 9, date: morning.Add(19 * time.Minute), authorName: "Nora Voss", text: "I'll add that to the setup notes."},
-		{id: 10, date: morning.Add(20 * time.Minute), out: true, text: "I can leave a spare card in the field kit.", reactions: "👍 2  ❤️ 1"},
-		{id: 11, date: morning.Add(22 * time.Minute), authorName: "Mira Chen", text: "Please do. Then we're ready for Saturday.", reply: messageReply{id: 10}},
+		{id: 7, date: morning.Add(15 * time.Minute), authorName: "Nora Voss", text: "The screen is still readable with the backlight turned down."},
+		{id: 8, date: nextMorning.Add(17 * time.Minute), authorName: "Theo Park", text: "Clipboard paste worked on the laptop. The caption came through."},
+		{id: 9, date: nextMorning.Add(19 * time.Minute), authorName: "Nora Voss", text: "I'll add that to the setup notes."},
+		{id: 10, date: nextMorning.Add(20 * time.Minute), out: true, text: "I can leave a spare card in the field kit.", reactions: "👍 2  ❤️ 1"},
+		{id: 11, date: nextMorning.Add(22 * time.Minute), authorName: "Mira Chen", text: "Please do. Then we're ready for Saturday.", reply: messageReply{id: 10}},
 	}
 }

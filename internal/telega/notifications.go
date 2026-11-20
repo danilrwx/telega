@@ -245,7 +245,12 @@ func (a *app) notification(e serverEvent, viewportOK bool) desktopNotice {
 		}
 
 		body = "Reaction on your message"
+
 		if emoji := noticeLabel(e.reactionEmoji); emoji != "" {
+			if a.textReactions {
+				emoji = reactionName(emoji)
+			}
+
 			body = "Reaction " + emoji + " on your message"
 		}
 

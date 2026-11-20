@@ -451,7 +451,13 @@ func (a *app) openSelected(out chan<- request, linksOnly bool) {
 
 	msg := a.log[a.offset]
 	if msg.attachment != nil && !linksOnly {
+		if msg.attachment.location == nil {
+			a.status = "Full attachment unavailable"
+			return
+		}
+
 		a.ask(out, request{kind: "download", chat: a.currentChat(), anchor: msg.id, attachment: msg.attachment})
+
 		return
 	}
 

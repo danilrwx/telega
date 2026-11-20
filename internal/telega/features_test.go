@@ -25,9 +25,27 @@ func TestChatListSeparatesRowsAtMinimumWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, part := range []string{"Tab Archive", "\x1b[3;2H\x1b[7m", "\x1b[3;2H›", "Карманные к…", "\x1b[3;17H999+@", "\x1b[4;2H╵"} {
+	for _, part := range []string{"Tab Archive", "\x1b[2;2H\x1b[7m", "\x1b[2;2H›", "Карманные к…", "\x1b[2;17H999+@", "\x1b[3;2H╵"} {
 		if !strings.Contains(screen.String(), part) {
 			t.Fatalf("chat list missing %q: %q", part, screen.String())
+		}
+	}
+}
+
+func TestDarkPaletteUsesANSIOnBasicTerminal(t *testing.T) {
+	for _, colorTerm := range []string{"", "truecolor", "24bit"} {
+		a := app{ready: true, colors: choosePalette("dark", colorTerm), chats: []chat{{title: "Ada"}}}
+
+		var screen bytes.Buffer
+		if err := paint(&screen, &a, minTerminalCols, minTerminalRows); err != nil {
+			t.Fatal(err)
+		}
+
+		out := screen.String()
+		if !strings.Contains(out, "›") || strings.Contains(out, "\x1b[7m") != (colorTerm == "") ||
+			strings.Contains(out, ansiDarkPalette.heading) != (colorTerm == "") ||
+			strings.Contains(out, "38;2;") != (colorTerm != "") || strings.Contains(out, "48;2;") != (colorTerm != "") {
+			t.Fatalf("wrong selection style for COLORTERM=%q: %q", colorTerm, out)
 		}
 	}
 }
@@ -172,7 +190,7 @@ func TestFormattedChannelMessage(t *testing.T) {
 		}),
 	}
 
-	hidden := strings.Join(formattedMessage(msg, 24, 8, false), "\n")
+	hidden := strings.Join(formattedMessage(msg, 24, 8, false, &standardPalette), "\n")
 	if !strings.Contains(hidden, "[File] note.txt") ||
 		!strings.Contains(hidden, "🙂\x1b[0;1mbold") ||
 		!strings.Contains(hidden, "│ ") ||
@@ -181,7 +199,7 @@ func TestFormattedChannelMessage(t *testing.T) {
 		t.Fatalf("unexpected formatted content %q", hidden)
 	}
 
-	shown := strings.Join(formattedMessage(msg, 24, 8, true), "\n")
+	shown := strings.Join(formattedMessage(msg, 24, 8, true, &standardPalette), "\n")
 	if !strings.Contains(shown, "secret") {
 		t.Fatal("spoiler was not revealed")
 	}

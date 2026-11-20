@@ -158,9 +158,14 @@ func (a *app) messageLines(msg message, width, limit int) []string {
 		headers = append(headers, "\x1b[36m"+wrap("↪ [J] Reply to "+quote, width, 1)[0]+"\x1b[0m")
 	}
 
-	lines := append(headers, formattedMessage(msg, width, limit-len(headers), a.revealID == msg.id)...)
+	lines := append(headers, formattedMessage(msg, width, limit-len(headers), a.revealID == msg.id, a.palette())...)
 	if showReactions {
-		summary := wrap("↳ "+msg.reactions, width, 2)
+		reactions, prefix := msg.reactions, "↳ "
+		if a.textReactions {
+			reactions, prefix = textReactionSummary(reactions), "  "
+		}
+
+		summary := wrap(prefix+reactions, width, 2)
 		line := summary[0]
 
 		if len(summary) == 2 && width > 1 {

@@ -3,24 +3,39 @@ package telega
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, string), left, cols, statusRow int) {
 	current := a.currentChat()
+	colors := a.palette()
 	title := threadTitle(current)
 
 	if len(a.selection) > 0 {
 		title = fmt.Sprintf("[%d selected] %s", len(a.selection), title)
 	}
 
-	label(left, 2, cols-left, title)
+	b.WriteString(colors.heading)
+	label(left, 1, cols-left, title)
+	b.WriteString("\x1b[0m")
 
 	broadcast := current.key.kind == 'c' && !current.group
 	body := left + 8
 	bodyWidth := min(90, cols-body+1)
 	bottom := statusRow
 
-	var sawUnread bool
+	const firstMessageRow = 2
+
+	var (
+		sawUnread bool
+		newerDay  time.Time
+	)
+
+	showDay := func(day time.Time) {
+		b.WriteString(colors.date)
+		label(body, bottom, bodyWidth, "── "+day.Format(time.DateOnly)+" ──")
+		b.WriteString("\x1b[0m")
+	}
 
 	for i, msg := range a.log[a.offset:] {
 		author := a.authorLabel(msg)
@@ -28,7 +43,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 
 		switch {
 		case current.key.kind == 'u' && msg.out:
-			author, style = "→ You", "\x1b[1;36m"
+			author, style = "→ You", colors.outgoing
 		case current.key.kind == 'u':
 			author = "← " + shortSender(current.title, bodyWidth)
 		case broadcast && author == current.title:
@@ -37,27 +52,62 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			author = current.title
 		}
 
+		if colors != &standardPalette && msg.out {
+			style = colors.outgoing
+		}
+
 		minRows := 1
 		if author != "" {
 			minRows++
 		}
 
-		if bottom <= 3 || i > 0 && bottom-3 <= minRows {
+		if bottom <= firstMessageRow || i > 0 && bottom-firstMessageRow <= minRows {
 			break
 		}
 
+		day := msg.date.UTC().Truncate(24 * time.Hour)
+		dateBoundary := !day.IsZero() && !newerDay.IsZero() && !day.Equal(newerDay)
+
+		dateRows := 0
+		if dateBoundary {
+			dateRows = 1
+		}
+
 		unreadBoundary := sawUnread && msg.id <= current.unread.inboxID
+
+		separatorRows := dateRows
 		if unreadBoundary {
-			if bottom-3 > minRows {
+			separatorRows++
+		}
+
+		padDate := dateBoundary && bottom-firstMessageRow-minRows >= separatorRows+2
+		if padDate {
+			bottom--
+		}
+
+		if unreadBoundary {
+			if bottom-firstMessageRow > minRows+dateRows {
 				bottom--
 
-				b.WriteString("\x1b[1m")
+				b.WriteString(colors.unread)
 				label(body, bottom, bodyWidth, "──────── Unread ────────")
 				b.WriteString("\x1b[0m")
 			}
 
 			sawUnread = false
-		} else if i > 0 {
+		}
+
+		if dateBoundary {
+			if bottom-firstMessageRow > minRows {
+				bottom--
+
+				showDay(newerDay)
+			}
+
+			if padDate {
+				bottom--
+			}
+		} else if i > 0 && !unreadBoundary {
 			bottom--
 		}
 
@@ -65,7 +115,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			sawUnread = true
 		}
 
-		limit := bottom - 3
+		limit := bottom - firstMessageRow
 
 		header := author != "" && limit > 1
 		if header {
@@ -82,7 +132,9 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 
 		a.visibleMessages++
 
+		b.WriteString(colors.muted)
 		label(left, bottom, 5, msg.date.UTC().Format("15:04"))
+		b.WriteString("\x1b[0m")
 
 		if header {
 			b.WriteString(style)
@@ -113,13 +165,21 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			fmt.Fprintf(b, "\x1b[%d;%dH%s│\x1b[0m", first+row, body-2, railStyle)
 			fmt.Fprintf(b, "\x1b[%d;%dH%s\x1b[0m", first+row, body, line)
 		}
+
+		newerDay = day
 	}
 
-	if bottom-3 >= (statusRow-2)/2 {
-		a.historyRoom = bottom - 3
+	if !newerDay.IsZero() && bottom > firstMessageRow {
+		bottom--
+
+		showDay(newerDay)
+	}
+
+	if room := bottom - firstMessageRow; room >= (statusRow-firstMessageRow)/2 {
+		a.historyRoom = room
 	}
 
 	if len(a.log) == 0 && a.pending == "" {
-		label(left, 3, cols-left, "No messages")
+		label(left, firstMessageRow, cols-left, "No messages")
 	}
 }

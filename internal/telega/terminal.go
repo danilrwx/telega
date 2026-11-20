@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -75,7 +76,12 @@ func Run(opts Options) error {
 
 	requests, events := make(chan request, 1), make(chan serverEvent, 24)
 
-	a := app{demo: demo, ready: demo, focused: true}
+	colorTerm := os.Getenv("COLORTERM")
+	a := app{demo: demo, ready: demo, focused: true, colors: choosePalette(os.Getenv("TELEGA_THEME"), colorTerm)}
+	console := slices.Contains([]string{"vt100", "vt220", "linux", "rcons-color", "wsvt25"}, os.Getenv("TERM"))
+	reactionMode := os.Getenv("TELEGA_REACTIONS")
+
+	a.textReactions = reactionMode == "text" || reactionMode != "emoji" && (console || a.colors == &ansiDarkPalette)
 	defer a.discardAttachment()
 
 	notices := make(chan desktopNotice, 16)

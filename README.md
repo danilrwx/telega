@@ -2,7 +2,7 @@
 
 A keyboard-driven Telegram client for Linux and OpenBSD, including the Pomera DM250. It connects to a personal account over MTProto through [gotd](https://github.com/gotd/td).
 
-![The telega offline demo showing the compact chat list, message blocks, reactions, a code snippet, and a quoted reply](docs/screenshot.png)
+![The telega offline demo in a dark terminal showing the chat list, date separators, reactions, and a quoted reply](docs/screenshot.png)
 
 ## Features
 
@@ -52,9 +52,11 @@ On first sign-in, run `telega` and scan the QR code using **Settings → Devices
 
 Terminal paste (often `Ctrl+Shift+V`) keeps line breaks and indentation. Use triple backticks on their own lines to send a code block. A language can follow the opening backticks.
 
-History loads in advance when about half the conversation pane is empty. The selected message stays in place. Timestamps are in UTC.
+History loads in advance when about half the conversation pane is empty. The selected message stays in place. Dates and timestamps are in UTC.
 
-- Custom emoji reactions appear as a text count.
+Run `TELEGA_THEME=dark telega` for colored accents on a dark terminal background. Consoles such as OpenBSD `wscons` use standard ANSI colors and reverse video for the selected chat. Terminals that report `COLORTERM=truecolor` or `COLORTERM=24bit` use the pastel palette.
+
+- Custom emoji reactions appear as a text count. Console mode labels reactions with text, such as `[like] 3` and `[fire] 1`. Set `TELEGA_REACTIONS=text` to use these labels with any terminal font or `TELEGA_REACTIONS=emoji` to show emoji.
 - Forwarding and deletion ask for confirmation. Telegram applies channel and supergroup deletion to everyone.
 - Pasting a screenshot from the clipboard uses `wl-paste` on Wayland or `xclip` on X11.
 - To take a screenshot from inside telega on Wayland, press `S` to select a region. This optional shortcut uses `slurp` and `grim`.

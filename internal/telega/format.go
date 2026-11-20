@@ -193,7 +193,7 @@ func messageSpans(entities []tg.MessageEntityClass) []textSpan {
 	return result
 }
 
-func writeStyle(out *strings.Builder, style textStyle) {
+func writeStyle(out *strings.Builder, style textStyle, codeSGR string) {
 	out.WriteString("\x1b[0")
 
 	for _, entry := range []struct {
@@ -204,7 +204,7 @@ func writeStyle(out *strings.Builder, style textStyle) {
 		{italicStyle | quoteStyle, ";3"},
 		{underlineStyle | linkStyle, ";4"},
 		{strikeStyle, ";9"},
-		{codeStyle | preStyle, ";36"},
+		{codeStyle | preStyle, ";" + codeSGR},
 		{linkStyle, ";36"},
 	} {
 		if style&entry.mask != 0 {
@@ -215,7 +215,7 @@ func writeStyle(out *strings.Builder, style textStyle) {
 	out.WriteByte('m')
 }
 
-func formattedMessage(msg message, width, limit int, reveal bool) []string {
+func formattedMessage(msg message, width, limit int, reveal bool, colors *terminalPalette) []string {
 	if msg.attachment == nil && len(msg.spans) == 0 {
 		return wrap(msg.text, width, limit)
 	}
@@ -228,7 +228,7 @@ func formattedMessage(msg message, width, limit int, reveal bool) []string {
 			kind = "File"
 		}
 
-		lines = append(lines, "\x1b[36m"+wrap("["+kind+"] "+msg.attachment.name, width, 1)[0]+"\x1b[0m")
+		lines = append(lines, colors.attachment+wrap("["+kind+"] "+msg.attachment.name, width, 1)[0]+"\x1b[0m")
 		if len(lines) == limit || msg.text == "[Attachment]" || msg.text == "" {
 			return lines
 		}
@@ -294,7 +294,7 @@ func formattedMessage(msg message, width, limit int, reveal bool) []string {
 		}
 
 		if cells == 0 && style&(quoteStyle|preStyle) != 0 && span+2 <= width {
-			line.WriteString("\x1b[36m│ \x1b[0m")
+			line.WriteString("\x1b[" + colors.codeSGR + "m│ \x1b[0m")
 
 			cells = 2
 		}
@@ -308,7 +308,7 @@ func formattedMessage(msg message, width, limit int, reveal bool) []string {
 		}
 
 		if current != style {
-			writeStyle(&line, style)
+			writeStyle(&line, style, colors.codeSGR)
 			current = style
 		}
 

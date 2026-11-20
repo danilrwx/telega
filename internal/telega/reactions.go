@@ -45,6 +45,37 @@ func reactionSummary(reactions tg.MessageReactions) string {
 	return strings.Join(parts, "  ")
 }
 
+var reactionNames = map[string]string{
+	"👍": "like", "👎": "dislike", "❤": "heart", "🔥": "fire", "😂": "laugh", "🎉": "party", "⭐": "star",
+	"🤣": "rofl", "😁": "grin", "😄": "smile", "🥰": "love", "😍": "heart-eyes", "🤩": "star-eyes", "😘": "kiss",
+	"👏": "clap", "🙌": "cheer", "🙏": "thanks", "🤝": "handshake", "👌": "ok", "💯": "100",
+	"💔": "broken-heart", "🤔": "think", "🤯": "mind-blown", "😱": "scream", "😢": "sad", "😭": "cry", "😡": "angry",
+	"😎": "cool", "🤓": "nerd", "💩": "poop", "🤡": "clown", "👀": "eyes", "🤷": "shrug", "🗿": "moai",
+	"🥳": "celebrate", "🫡": "salute", "🫶": "heart-hands", "💪": "strong", "🏆": "trophy", "⚡": "zap",
+	"❤‍🔥": "heart-fire", "💘": "cupid", "💋": "kiss-mark", "🕊": "dove", "🍾": "cheers",
+	"custom": "custom", "custom emoji": "custom",
+}
+
+func reactionName(emoji string) string {
+	emoji = strings.ReplaceAll(emoji, "\uFE0F", "")
+	if name := reactionNames[emoji]; name != "" {
+		return name
+	}
+
+	return strings.Trim(fmt.Sprintf("%U", []rune(emoji)), "[]")
+}
+
+func textReactionSummary(summary string) string {
+	parts := strings.Split(summary, "  ")
+	for i, part := range parts {
+		if emoji, count, ok := strings.Cut(part, " "); ok {
+			parts[i] = "[" + reactionName(emoji) + "] " + count
+		}
+	}
+
+	return strings.Join(parts, "  ")
+}
+
 func reactionUpdates(events chan<- serverEvent) tg.MessageReactionsHandler {
 	return func(ctx context.Context, entities tg.Entities, update *tg.UpdateMessageReactions) error {
 		text := reactionSummary(update.Reactions)

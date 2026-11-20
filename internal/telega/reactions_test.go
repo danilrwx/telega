@@ -79,3 +79,27 @@ func TestHistoryAndLiveReactions(t *testing.T) {
 		t.Fatal("private chat should show the full title and a compact sender label")
 	}
 }
+
+func TestConsoleReactionLabels(t *testing.T) {
+	msg := message{text: "On the bench", reactions: "👍 3  ❤️ 2  ⭐ 1  custom 4  🛠 5", myReaction: "❤️"}
+	a := app{
+		ready: true, open: true, textReactions: true, pickingReaction: true,
+		chats: []chat{{title: "Lab"}}, log: []message{msg},
+	}
+
+	lines := a.messageLines(msg, 80, 2)
+	if len(lines) != 2 || !strings.Contains(lines[1], "[like] 3  [heart] 2  [star] 1  [custom] 4  [U+1F6E0] 5") {
+		t.Fatalf("unexpected console reactions: %q", lines)
+	}
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, minTerminalCols, 12); err != nil {
+		t.Fatal(err)
+	}
+
+	out := screen.String()
+	if !strings.Contains(out, "1 Like 2 Heart 3 Fire") || !strings.Contains(out, "4 Laugh 5 Party 6 No") ||
+		!strings.Contains(out, "Your reaction: heart") || strings.Contains(out, "👍") {
+		t.Fatalf("unexpected console reaction menu: %q", out)
+	}
+}

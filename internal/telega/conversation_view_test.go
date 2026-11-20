@@ -73,3 +73,32 @@ func TestDirectMessagesUseSeparateBlocksForEachMessage(t *testing.T) {
 		t.Fatalf("each private message should have a line beside its body; got %d", count)
 	}
 }
+
+func TestConversationShowsDateAndUnreadSeparators(t *testing.T) {
+	morning := time.Date(2026, time.June, 9, 9, 0, 0, 0, time.UTC)
+	a := app{
+		ready: true, open: true,
+		chats: []chat{{key: peerKey{'u', 2}, title: "Ada", unread: unreadState{count: 2, inboxID: 1}}},
+		log: []message{
+			{id: 3, date: morning.Add(time.Minute), text: "Third"},
+			{id: 2, date: morning, text: "Second"},
+			{id: 1, date: morning.Add(-24 * time.Hour), text: "First"},
+		},
+	}
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 80, 20); err != nil {
+		t.Fatal(err)
+	}
+
+	out := screen.String()
+	for _, part := range []string{"\x1b[6;36H── 2026-06-08", "\x1b[10;36H── 2026-06-09", "\x1b[11;36H──────── Unread"} {
+		if !strings.Contains(out, part) {
+			t.Fatalf("conversation missing %q", part)
+		}
+	}
+
+	if strings.Count(out, "2026-06-09") != 1 || a.visibleMessages != 3 {
+		t.Fatal("date separators should appear once per day and preserve the visible message count")
+	}
+}
