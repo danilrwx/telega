@@ -260,6 +260,10 @@ func TestEditCopyAndAuthor(t *testing.T) {
 		t.Fatalf("author is missing from the rendered conversation: %v", err)
 	}
 
+	if !strings.Contains(screen.String(), "e edit") || strings.Contains(screen.String(), "· edited") {
+		t.Fatal("own unedited message should have only the edit shortcut")
+	}
+
 	a.input(key{text: "e"}, out)
 	a.input(key{name: "home"}, out)
 	a.input(key{text: "new "}, out)
@@ -273,6 +277,7 @@ func TestEditCopyAndAuthor(t *testing.T) {
 
 		copy := *raw
 		copy.Message = query.Message
+		copy.SetEditDate(123)
 		output.(*tg.UpdatesBox).Updates = &tg.UpdateShort{Update: &tg.UpdateEditMessage{Message: &copy}}
 
 		return nil
@@ -284,6 +289,12 @@ func TestEditCopyAndAuthor(t *testing.T) {
 	}
 
 	a.receive(out, serverEvent{kind: req.kind, chat: c.key, anchor: 2, log: log})
+	screen.Reset()
+
+	if err := paint(&screen, &a, 96, 24); err != nil || !strings.Contains(screen.String(), "· edited") {
+		t.Fatalf("edit should be marked after acknowledgement: %v", err)
+	}
+
 	a.input(key{text: "y"}, out)
 	t.Setenv("DISPLAY", "")
 	t.Setenv("WAYLAND_DISPLAY", "")

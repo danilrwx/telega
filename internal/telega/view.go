@@ -194,6 +194,10 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		if a.thread != nil {
 			keys = "jk move  h back  i write  r reply  z react  ? search"
 		}
+
+		if a.pending == "" && len(a.log) > 0 && a.log[a.offset].editable() {
+			keys = "e edit  " + keys
+		}
 	}
 
 	if a.searching {

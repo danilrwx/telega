@@ -265,7 +265,7 @@ func TestImageStagingAndUpload(t *testing.T) {
 func TestTextReply(t *testing.T) {
 	peer := peerKey{'u', 42}
 	a := app{
-		ready: true, open: true, chats: []chat{{key: peer, input: &tg.InputPeerUser{UserID: 42}}},
+		ready: true, open: true, chats: []chat{{key: peer, title: "Mira Chen", input: &tg.InputPeerUser{UserID: 42}}},
 		log: []message{{id: 21, text: "Original message"}},
 	}
 	requests := make(chan request, 1)
@@ -304,8 +304,26 @@ func TestTextReply(t *testing.T) {
 
 	a.receive(requests, serverEvent{kind: "send", chat: peer, log: []message{ack}})
 
-	if lines := a.messageLines(a.log[0], 40, 2); len(lines) != 2 || !strings.Contains(lines[0], "↪ [J] Reply to Original message") || lines[1] != "Answer" {
+	if lines := a.messageLines(a.log[0], 40, 2); len(lines) != 2 || !strings.Contains(lines[0], "↪ [J] Mira Chen · Original message") || lines[1] != "Answer" {
 		t.Fatalf("wrong reply rendering: %q", lines)
+	}
+}
+
+func TestReplyLabelUsesAuthorOfForwardedMessage(t *testing.T) {
+	a := app{chats: []chat{{key: peerKey{'g', 42}, group: true}}, log: []message{
+		{id: 21, text: "Article link", out: true, forward: &forwardSource{name: "Terminal Notes"}},
+	}}
+
+	reply := messageReply{id: 21}
+	if label := a.replyLabel(reply, 60); label != "↪ [J] You · Article link" {
+		t.Fatalf("wrong author in reply: %q", label)
+	}
+
+	reply.peer = peerKey{'c', 42}
+
+	reply.quote = "Some article"
+	if label := a.replyLabel(reply, 60); label != "↪ [J] Reply to Some article" {
+		t.Fatalf("used an author from an unrelated chat: %q", label)
 	}
 }
 

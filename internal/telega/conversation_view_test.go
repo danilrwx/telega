@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gotd/td/tg"
 )
 
 func TestChannelMessageBlocksKeepTheirContentTogether(t *testing.T) {
@@ -28,7 +30,7 @@ func TestChannelMessageBlocksKeepTheirContentTogether(t *testing.T) {
 
 	out := screen.String()
 	for _, fragment := range []string{
-		"\x1b[13;32H09:01", "[J] Reply to Earlier update",
+		"\x1b[13;32H09:01", "[J] Ada · Earlier update",
 		"[Photo] board.jpg", strings.Repeat("x", 90) + "\x1b[0m", "👍 2",
 		"\x1b[10;32H09:00", "\x1b[10;38HAda", "[Video] bench.mp4",
 	} {
@@ -43,6 +45,33 @@ func TestChannelMessageBlocksKeepTheirContentTogether(t *testing.T) {
 
 	if count := strings.Count(out, "\x1b[36m│\x1b[0m"); count != 5 {
 		t.Fatalf("selected block should place the same line next to all five rows; got %d", count)
+	}
+}
+
+func TestEditedChannelPostCanHideEditMark(t *testing.T) {
+	channel := peerKey{'c', 2}
+	post := &tg.Message{ID: 1, PeerID: &tg.PeerChannel{ChannelID: 2}, Message: "Announcement"}
+	post.SetEditDate(123)
+
+	_, msg, _ := unwrapMessage(post)
+	a := app{ready: true, open: true, chats: []chat{{key: channel, title: "News"}}, log: []message{msg}}
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, minTerminalCols, 12); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := screen.String(); !strings.Contains(out, "Hedited") || strings.Contains(out, "e edit") {
+		t.Fatalf("wrong mark or shortcut for an incoming post: %q", out)
+	}
+
+	post.EditHide = true
+	_, msg, _ = unwrapMessage(post)
+	a.receive(nil, serverEvent{kind: "live", chat: channel, log: []message{msg}})
+	screen.Reset()
+
+	if err := paint(&screen, &a, minTerminalCols, 12); err != nil || strings.Contains(screen.String(), "Hedited") {
+		t.Fatalf("Telegram's hidden edit should remove the mark: %v", err)
 	}
 }
 

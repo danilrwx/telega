@@ -159,6 +159,7 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 				} else {
 					text, entities := codeBlocks(string(a.draft))
 					a.log[i].text, a.log[i].spans, a.log[i].links = text, messageSpans(entities), messageLinks(text, nil, nil)
+					a.log[i].edited = true
 				}
 			}
 

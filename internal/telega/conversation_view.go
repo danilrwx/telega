@@ -61,8 +61,10 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			style = colors.outgoing
 		}
 
+		hasHeader := author != "" || msg.edited
+
 		minRows := 1
-		if author != "" {
+		if hasHeader {
 			minRows++
 		}
 
@@ -120,7 +122,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 
 		limit := bottom - firstMessageRow
 
-		header := author != "" && limit > 1
+		header := hasHeader && limit > 1
 		if header {
 			limit--
 		}
@@ -140,9 +142,26 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 		b.WriteString("\x1b[0m")
 
 		if header {
-			b.WriteString(style)
-			label(left+6, bottom, bodyWidth+2, author)
-			b.WriteString("\x1b[0m")
+			authorWidth := bodyWidth + 2
+			mark := "edited"
+
+			if author != "" {
+				if msg.edited {
+					mark = " · edited"
+					authorWidth -= uniseg.StringWidth(mark)
+					author = wrap(author, authorWidth, 1)[0]
+				}
+
+				b.WriteString(style)
+				label(left+6, bottom, authorWidth, author)
+				b.WriteString("\x1b[0m")
+			}
+
+			if msg.edited {
+				b.WriteString(colors.muted)
+				label(left+6+uniseg.StringWidth(author), bottom, uniseg.StringWidth(mark), mark)
+				b.WriteString("\x1b[0m")
+			}
 		}
 
 		if _, checked := a.selection[msg.id]; checked {

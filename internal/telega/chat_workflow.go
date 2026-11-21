@@ -110,13 +110,17 @@ func (a *app) switchChat(out chan<- request, step int) {
 	a.openChat(out, next)
 }
 
+func (m message) editable() bool {
+	return m.out && !m.service
+}
+
 func (a *app) beginEdit() {
 	if a.pending != "" || len(a.log) == 0 {
 		return
 	}
 
 	msg := a.log[a.offset]
-	if !msg.out || msg.service {
+	if !msg.editable() {
 		a.status = "Choose one of your messages to edit"
 		return
 	}
@@ -149,6 +153,7 @@ func (a *app) submitDraft(out chan<- request) {
 			if i >= 0 {
 				plain, entities := codeBlocks(text)
 				a.log[i].text, a.log[i].spans, a.log[i].links = plain, messageSpans(entities), messageLinks(plain, nil, nil)
+				a.log[i].edited = true
 			}
 
 			a.clearComposer()

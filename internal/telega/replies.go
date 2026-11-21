@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gotd/td/tg"
+	"github.com/rivo/uniseg"
 )
 
 type messageReply struct {
@@ -126,6 +127,45 @@ func (a *app) messageJumpHints() string {
 	return strings.Join(hints, "   ")
 }
 
+func (a *app) replyLabel(reply messageReply, width int) string {
+	const marker = "↪ [J] "
+
+	quote, prefix := reply.quote, "Reply to "
+	current := a.currentChat()
+
+	if reply.peer.id == 0 || reply.peer == current.key {
+		if i := slices.IndexFunc(a.log, func(candidate message) bool { return candidate.id == reply.id }); i >= 0 {
+			target := a.log[i]
+			if quote == "" {
+				quote = messageExcerpt(target, a.revealID)
+			}
+
+			author := a.authorLabel(target)
+			if target.out {
+				author = "You"
+			} else if author == "" && !current.group && !target.service {
+				author = current.title
+			}
+
+			author = strings.Join(strings.Fields(author), " ")
+			if author != "" {
+				nameWidth := max(1, (width-uniseg.StringWidth(marker)-3)/2)
+				if uniseg.StringWidth(author) > nameWidth {
+					author = shortSender(author, nameWidth)
+				}
+
+				prefix = author + " · "
+			}
+		}
+	}
+
+	if quote == "" {
+		quote = fmt.Sprintf("#%d", reply.id)
+	}
+
+	return marker + prefix + quote
+}
+
 func (a *app) messageLines(msg message, width, limit int) []string {
 	showReactions := msg.reactions != "" && limit > 1
 	if showReactions {
@@ -144,18 +184,7 @@ func (a *app) messageLines(msg message, width, limit int) []string {
 	}
 
 	if msg.reply.id != 0 && limit-len(headers) > 1 {
-		quote := msg.reply.quote
-		if quote == "" && (msg.reply.peer.id == 0 || msg.reply.peer == a.currentChat().key) {
-			if i := slices.IndexFunc(a.log, func(candidate message) bool { return candidate.id == msg.reply.id }); i >= 0 {
-				quote = messageExcerpt(a.log[i], a.revealID)
-			}
-		}
-
-		if quote == "" {
-			quote = fmt.Sprintf("#%d", msg.reply.id)
-		}
-
-		headers = append(headers, "\x1b[36m"+wrap("↪ [J] Reply to "+quote, width, 1)[0]+"\x1b[0m")
+		headers = append(headers, "\x1b[36m"+wrap(a.replyLabel(msg.reply, width), width, 1)[0]+"\x1b[0m")
 	}
 
 	lines := append(headers, formattedMessage(msg, width, limit-len(headers), a.revealID == msg.id, a.palette())...)

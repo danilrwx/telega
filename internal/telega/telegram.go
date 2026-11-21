@@ -55,7 +55,7 @@ type message struct {
 	id                                      int
 	text                                    string
 	date                                    time.Time
-	out                                     bool
+	out, edited                             bool
 	attachment                              *attachment
 	spans                                   []textSpan
 	mentioned, topicStart                   bool
@@ -82,7 +82,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 			reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions,
 			comments: msg.Replies.Comments, commentCount: msg.Replies.Replies,
 			author: keyFor(msg.FromID), authorName: limitText(msg.PostAuthor, 80), protected: msg.Noforwards,
-			id: msg.ID, text: text, date: time.Unix(int64(msg.Date), 0),
+			id: msg.ID, text: text, date: time.Unix(int64(msg.Date), 0), edited: msg.EditDate > 0 && !msg.EditHide,
 			out: msg.Out, reply: replyInfo(msg.ReplyTo), forward: forwardInfo(msg.FwdFrom), attachment: fileFromMedia(msg.Media), spans: spans, links: messageLinks(text, msg.Entities, spans), mentioned: msg.Mentioned,
 		}, true
 	case *tg.MessageService:
