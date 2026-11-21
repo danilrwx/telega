@@ -100,6 +100,10 @@ func (a *app) switchChat(out chan<- request, step int) {
 	}
 
 	next := a.selected + step
+	for a.unreadOnly && next >= 0 && next < len(a.chats) && !a.chats[next].unread.any() {
+		next += step
+	}
+
 	if next < 0 || next >= len(a.chats) {
 		return
 	}

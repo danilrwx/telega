@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +14,50 @@ import (
 )
 
 type historyInvoker func(*tg.MessagesGetHistoryRequest) []tg.MessageClass
+
+func TestUnreadChatFilter(t *testing.T) {
+	a := app{ready: true, demo: true, chats: []chat{
+		{key: peerKey{'u', 2}, title: "Read chat"},
+		{key: peerKey{'u', 3}, title: "New message", unread: unreadState{count: 2}},
+		{key: peerKey{'u', 4}, title: "Mention only", unread: unreadState{mentions: 1}},
+		{key: peerKey{'u', 5}, title: "Marked unread", unread: unreadState{marked: true}},
+	}}
+
+	a.input(key{text: "f"}, nil)
+
+	if matches := a.visibleChats(); !slices.Equal(matches, []int{1, 2, 3}) || a.selected != 1 {
+		t.Fatalf("wrong unread chats or selection: %v, %d", matches, a.selected)
+	}
+
+	a.receive(nil, serverEvent{kind: "read", chat: a.chats[1].key, unread: unreadState{inboxID: 10}})
+
+	if a.selected != 2 {
+		t.Fatal("selection should advance when the chat becomes read")
+	}
+
+	a.input(key{text: "/"}, nil)
+	a.input(key{text: "Marked"}, nil)
+
+	if matches := a.visibleChats(); !slices.Equal(matches, []int{3}) || a.selected != 3 {
+		t.Fatalf("name search should combine with unread filtering: %v, %d", matches, a.selected)
+	}
+
+	a.input(key{name: "escape"}, nil)
+
+	if !a.unreadOnly {
+		t.Fatal("canceling name search should keep the unread filter")
+	}
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 80, 24); err != nil || !strings.Contains(screen.String(), "Chats · Unread") ||
+		!strings.Contains(screen.String(), "f all") || strings.Contains(screen.String(), "Read chat") {
+		t.Fatalf("unread filter should be visible and hide read chats: %v", err)
+	}
+
+	if ok := a.input(key{name: "escape"}, nil); !ok || a.unreadOnly || len(a.visibleChats()) != 4 {
+		t.Fatal("Esc should turn off the unread filter and return to all chats")
+	}
+}
 
 func TestChatListSeparatesRowsAtMinimumWidth(t *testing.T) {
 	a := app{ready: true, chats: []chat{

@@ -31,6 +31,7 @@ type app struct {
 	prefixG, searching, pickingReaction            bool
 	search                                         []rune
 	chatQuery, messageQuery                        string
+	unreadOnly                                     bool
 	selection                                      map[int]struct{}
 	confirmDelete                                  []int
 	deleteForEveryone                              bool
@@ -78,6 +79,8 @@ func (a *app) ask(out chan<- request, req request) {
 }
 
 func (a *app) receive(out chan<- request, e serverEvent) {
+	defer a.keepUnreadSelection()
+
 	a.rememberAuthors(e.log)
 
 	switch e.kind {

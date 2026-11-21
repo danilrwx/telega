@@ -14,12 +14,24 @@ func (a *app) visibleChats() []int {
 	var indexes []int
 
 	for i, chat := range a.chats {
-		if strings.Contains(strings.ToLower(chat.title), needle) {
+		if a.chatMatches(chat, needle) {
 			indexes = append(indexes, i)
 		}
 	}
 
 	return indexes
+}
+
+func (a *app) chatMatches(c chat, needle string) bool {
+	return (!a.unreadOnly || c.unread.any()) && (needle == "" || strings.Contains(strings.ToLower(c.title), needle))
+}
+
+func (a *app) keepUnreadSelection() {
+	if !a.unreadOnly || a.open || len(a.chats) == 0 || a.chatMatches(a.chats[a.selected], strings.ToLower(a.chatQuery)) {
+		return
+	}
+
+	a.moveChat(0)
 }
 
 func (a *app) moveChat(step int) {

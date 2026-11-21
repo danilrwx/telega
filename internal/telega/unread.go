@@ -20,6 +20,10 @@ func dialogUnread(d *tg.Dialog) unreadState {
 	}
 }
 
+func (u unreadState) any() bool {
+	return u.count > 0 || u.mentions > 0 || u.marked
+}
+
 func (u unreadState) badge() string {
 	if u.mentions > 0 {
 		if u.count == 0 {
@@ -61,7 +65,7 @@ func (a *app) nextUnread(step int) {
 
 	for i := range indexes {
 		next := indexes[(position+step*(i+1)+len(indexes))%len(indexes)]
-		if a.chats[next].unread.badge() != "" {
+		if a.chats[next].unread.any() {
 			a.selected, a.status = next, ""
 			return
 		}

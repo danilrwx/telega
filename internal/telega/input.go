@@ -111,6 +111,8 @@ func lastLineStart(text []rune) int {
 }
 
 func (a *app) input(k key, out chan<- request) bool {
+	defer a.keepUnreadSelection()
+
 	if k.name == "newline" && !a.composing {
 		k.name = "enter"
 	}
@@ -399,6 +401,11 @@ func (a *app) input(k key, out chan<- request) bool {
 			return true
 		}
 
+		if a.unreadOnly {
+			a.unreadOnly, a.status = false, ""
+			return true
+		}
+
 		return false
 	case "up":
 		a.moveChat(-1)
@@ -422,12 +429,14 @@ func (a *app) input(k key, out chan<- request) bool {
 		}
 
 		switch k.text {
+		case "f":
+			a.unreadOnly, a.status = !a.unreadOnly, ""
 		case "r":
 			if !a.demo && a.pending == "" {
 				a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder}})
 			}
 		case "A":
-			if !a.demo && a.pending == "" && len(a.chats) > 0 {
+			if !a.demo && a.pending == "" && slices.Contains(a.visibleChats(), a.selected) {
 				a.ask(out, request{kind: "archiveChat", chat: a.currentChat(), page: dialogPage{folder: a.dialogPage.folder}})
 			}
 		case "]":

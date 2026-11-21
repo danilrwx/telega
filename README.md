@@ -4,7 +4,7 @@ Telegram for the terminal. Catch up on chats, search conversations, and reply wi
 
 [Download telega](#install) · [Release notes and checksums](https://github.com/danilrwx/telega/releases/latest)
 
-![The telega offline demo in a dark terminal showing the chat list, date separators, reactions, and a quoted reply](docs/demo-conversation.png)
+![The telega offline demo in a dark terminal showing the unread chat filter, date separators, reactions, and a quoted reply](docs/demo-unread.png)
 *Offline demo from the current source tree.*
 
 ## Install
@@ -40,7 +40,7 @@ install -m 755 telega "$HOME/.local/bin/telega"
 
 ## What you can do
 
-- **Catch up quickly.** Switch chats without leaving the conversation view, jump to unread messages, and browse archives, forum topics, and channel comments. History loads in pages.
+- **Catch up quickly.** Switch chats from the conversation view, filter the chat list to unread chats, and browse archives, forum topics, and channel comments. History loads in pages.
 - **Keep context in view.** Read formatted messages, dates, replies, and reactions. Search both the loaded conversation and Telegram history, or follow a reply or forwarded source.
 - **Write from the keyboard.** Send multiline messages and code, paste a screenshot with a caption, or select several messages to forward or delete. Failed sends keep their drafts while the client is running.
 

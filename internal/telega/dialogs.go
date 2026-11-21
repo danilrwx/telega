@@ -199,6 +199,10 @@ func (a *app) dialogTitle() string {
 		title = "Archive"
 	}
 
+	if a.unreadOnly {
+		title += " · Unread"
+	}
+
 	if n := len(a.dialogPrevious); n > 0 {
 		title += fmt.Sprintf(" · page %d", n+1)
 	}

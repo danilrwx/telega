@@ -186,7 +186,10 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if a.ready {
-		keys = "jk move  l open  Tab archive  [/] pages  / filter  u/U unread"
+		keys = "f unread  jk move  l open  Tab archive  [/] pages  / filter  u/U unread"
+		if a.unreadOnly {
+			keys = "f all  jk move  l open  Tab archive  [/] pages  / filter  u/U unread"
+		}
 	}
 
 	if a.open {
@@ -367,7 +370,12 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			}
 
 			if len(indexes) == 0 && a.pending == "" {
-				label(2, 2, sidebar-3, "No matching chats")
+				empty := "No matching chats"
+				if a.unreadOnly && a.chatQuery == "" {
+					empty = "No unread on this page"
+				}
+
+				label(2, 2, sidebar-3, empty)
 			}
 		}
 
