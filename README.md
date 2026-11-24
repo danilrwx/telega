@@ -16,7 +16,7 @@ The installer picks the right build, checks its SHA-256 hash, and installs it to
 
 Try sample chats offline before signing in.
 
-![Telega showing unread chats, colored sender names, reactions, and the message composer](docs/demo-unread.png)
+![Telega chat and media gallery side by side. The chat shows unread markers, avatars, an inline image, a voice transcript, reactions, a quoted reply, and a saved draft.](docs/demo-overview.png)
 
 ## What you can do
 
