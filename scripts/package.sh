@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$#" -ne 3 ]; then
-    printf '%s\n' "Usage: $0 <linux|openbsd>/<amd64|arm64|armv7> <version> <output-directory>" >&2
+    printf '%s\n' "Usage: $0 <linux|openbsd|darwin>/<amd64|arm64|armv7> <version> <output-directory>" >&2
     exit 2
 fi
 
@@ -17,11 +17,11 @@ case "$version" in
     *) exit 2 ;;
 esac
 case "$target" in
-    linux/amd64|linux/arm64|openbsd/amd64|openbsd/arm64) arch=${target#*/} ;;
+    linux/amd64|linux/arm64|openbsd/amd64|openbsd/arm64|darwin/amd64|darwin/arm64) arch=${target#*/} ;;
     linux/armv7|openbsd/armv7) arch=arm; export GOARM=7 ;;
     *) printf 'Unsupported target: %s\n' "$target" >&2; exit 2 ;;
 esac
-export GOOS=${target%/*} GOARCH=$arch
+export GOOS="${target%/*}" GOARCH="$arch"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

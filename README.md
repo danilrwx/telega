@@ -1,6 +1,6 @@
 # Telega
 
-**Telegram for your terminal.** Catch up on unread chats, find anything in your history, and reply with Vim-style keys. Runs on Linux and OpenBSD, including the Pomera DM250.
+**Telegram for your terminal.** Catch up on unread chats, find anything in your history, and reply with Vim-style keys. Runs on macOS, Linux, and OpenBSD, including the Pomera DM250.
 
 **About 13 MiB of RAM** in the text-mode chat demo on Linux x86-64. [Memory measurements](docs/memory.md)
 
@@ -18,13 +18,13 @@ The installer picks the right build, checks its SHA-256 hash, and installs it to
 
 Try sample chats offline before signing in.
 
-![Telega chat and media gallery side by side. The chat shows unread markers, avatars, an inline image, a voice transcript, reactions, a quoted reply, and a saved draft.](docs/demo-overview.png)
+![A Telega conversation with a quoted reply and an inline photo, next to the chat’s media gallery.](docs/demo-overview.png)
 
 ## What you can do
 
-- **Find it fast.** Jump to a chat by name or username. Search messages across Telegram or browse a chat’s full media history.
-- **Handle voice messages in place.** Record, play, pause, and read Telegram’s transcription beneath the message.
-- **Make the terminal yours.** Keep drafts when you quit, edit in Vim, and see photos and avatars in Kitty or Sixel terminals.
+- **Keep up with chats.** Filter to unread conversations, jump to a chat by name or username, and search messages across your chats.
+- **Reply from the keyboard.** Quote messages, add reactions, and write longer replies in Vim or your preferred editor. Drafts are saved when you quit.
+- **Browse shared media.** Find photos, files, and links in a chat’s gallery, then jump to the original message. Kitty and Sixel terminals show image previews inline.
 
 ## Sign in
 

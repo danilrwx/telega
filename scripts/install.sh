@@ -5,7 +5,8 @@ install_telega() {
     case "$(uname -s)" in
         Linux) os=linux ;;
         OpenBSD) os=openbsd ;;
-        *) printf '%s\n' 'Telega builds are available for Linux and OpenBSD.' >&2; exit 1 ;;
+        Darwin) os=darwin ;;
+        *) printf '%s\n' 'Telega builds are available for Linux, macOS and OpenBSD.' >&2; exit 1 ;;
     esac
 
     case "$(uname -m)" in
@@ -27,12 +28,12 @@ install_telega() {
     curl -fsSL "$release/SHA256SUMS" -o "$work/SHA256SUMS"
 
     expected=$(awk -v name="$archive" '$2 == name { print $1 }' "$work/SHA256SUMS")
-    if [ "$os" = openbsd ]; then
-        actual=$(sha256 -q "$work/$archive")
-    else
-        actual=$(sha256sum "$work/$archive")
-        actual=${actual%% *}
-    fi
+    case "$os" in
+        darwin) actual=$(shasum -a 256 "$work/$archive") ;;
+        openbsd) actual=$(sha256 -q "$work/$archive") ;;
+        linux) actual=$(sha256sum "$work/$archive") ;;
+    esac
+    actual=${actual%% *}
     if [ "$actual" != "$expected" ]; then
         printf '%s\n' 'Checksum verification failed. Retry to download the latest release.' >&2
         exit 1
