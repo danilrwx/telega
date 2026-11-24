@@ -89,12 +89,7 @@ func entityName(peer peerKey, entities tg.Entities) string {
 
 	switch peer.kind {
 	case 'u':
-		if user := entities.Users[peer.id]; user != nil {
-			name = strings.TrimSpace(user.FirstName + " " + user.LastName)
-			if name == "" {
-				name = user.Username
-			}
-		}
+		name = userDisplayName(entities.Users[peer.id])
 	case 'g':
 		if chat := entities.Chats[peer.id]; chat != nil {
 			name = chat.Title
@@ -106,6 +101,18 @@ func entityName(peer peerKey, entities tg.Entities) string {
 	}
 
 	return limitText(name, 80)
+}
+
+func userDisplayName(user *tg.User) string {
+	if user == nil {
+		return ""
+	}
+
+	if name := strings.TrimSpace(user.FirstName + " " + user.LastName); name != "" {
+		return name
+	}
+
+	return user.Username
 }
 
 func lookupAuthor(ctx context.Context, api *tg.Client, req request) (string, *attachment) {

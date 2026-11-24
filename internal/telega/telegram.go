@@ -441,7 +441,7 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 			accountID = self.ID
 		}
 
-		if err := emit(ctx, events, serverEvent{kind: "ready", accountID: accountID, avatar: userAvatar(self)}); err != nil {
+		if err := emit(ctx, events, serverEvent{kind: "ready", accountID: accountID, text: userDisplayName(self), avatar: userAvatar(self)}); err != nil {
 			return err
 		}
 

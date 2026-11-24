@@ -25,9 +25,10 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 	firstMessageRow := 2
 	titleColumn := left + 1
 
-	if avatar := a.inlineImages.Get(inlineAvatarKey(a.directAvatarFile(current))); avatar != nil && len(avatar.Rows) == 2 {
-		fmt.Fprintf(b, "\x1b[1;%dH%s\x1b[2;%dH%s", titleColumn, avatar.Rows[0], titleColumn, avatar.Rows[1])
-		titleColumn += avatar.Width + 1
+	if a.showDirectAvatar(current) {
+		rows, offset := a.renderAvatar(a.directAvatarFile(current), current.key, current.title)
+		fmt.Fprintf(b, "\x1b[1;%dH%s\x1b[2;%dH%s", titleColumn, rows[0], titleColumn, rows[1])
+		titleColumn += offset
 		firstMessageRow++
 	}
 
@@ -49,7 +50,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 	body := left + 8
 	bodyWidth := cols - body + 1
 	bottom := statusRow
-	messageAvatars := a.inlineImages != nil && a.showMessageAvatars(current)
+	messageAvatars := a.showMessageAvatars(current) && bodyWidth > 12
 
 	var (
 		sawUnread bool
@@ -66,7 +67,8 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 	}
 
 	for i, msg := range a.log[a.offset:] {
-		author := a.authorLabel(msg)
+		senderName := a.authorLabel(msg)
+		author := senderName
 
 		style := "\x1b[1m"
 		if !msg.out && !msg.service {
@@ -114,13 +116,13 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			metadata = append(metadata, "edited")
 		}
 
-		var avatar *tui.InlineImage
-
-		if messageAvatars {
-			avatar = a.inlineImages.Get(inlineAvatarKey(a.avatarFile(msg, current)))
+		avatarPeer := a.avatarAuthor(msg)
+		if direct && !msg.out && avatarPeer.id == 0 {
+			avatarPeer = current.key
 		}
 
-		hasHeader := author != "" || len(metadata) > 0 || avatar != nil
+		showAvatar := messageAvatars && !msg.service && (avatarPeer.id != 0 || senderName != "" || msg.out || msg.avatar != nil)
+		hasHeader := author != "" || len(metadata) > 0 || showAvatar
 
 		minRows := 1
 		if hasHeader {
@@ -203,32 +205,35 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 
 		a.visibleMessages++
 
-		var avatarRows [2]string
-
-		avatarOffset := 0
-
-		if header && len(lines) > 0 && messageAvatars && messageWidth > 12 {
-			if avatar != nil && len(avatar.Rows) == 2 {
-				avatarRows = [2]string{avatar.Rows[0], avatar.Rows[1]}
-				avatarOffset = avatar.Width + 1
-			} else if direct {
-				name := current.title
-				if msg.out {
-					name = "You"
-				}
-
-				avatarRows = [2]string{colors.selected + placeholderInitials(name) + "\x1b[0m", colors.selected + "    \x1b[0m"}
-				avatarOffset = 5
-			}
-		}
-
 		mark := strings.Join(metadata, " · ")
 		if author != "" && mark != "" {
 			mark = " · " + mark
 		}
 
+		markWidth := uniseg.StringWidth(mark)
+
+		var avatarRows [2]string
+
+		avatarOffset := 0
+
+		if header && len(lines) > 0 && showAvatar && messageWidth+2-avatarGutter > markWidth {
+			avatarName := senderName
+			if avatarName == "" {
+				avatarName = current.title
+			}
+
+			if msg.out {
+				avatarName = a.accountName
+				if avatarName == "" {
+					avatarName = "You"
+				}
+			}
+
+			avatarRows, avatarOffset = a.renderAvatar(a.avatarFile(msg, current), avatarPeer, avatarName)
+		}
+
 		headerWidth := messageWidth + 2 - avatarOffset
-		author = tui.Wrap(author, max(1, headerWidth-uniseg.StringWidth(mark)), 1)[0]
+		author = tui.Wrap(author, max(1, headerWidth-markWidth), 1)[0]
 		authorWidth := uniseg.StringWidth(author)
 
 		blockLeft := left

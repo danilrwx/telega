@@ -16,7 +16,10 @@ import (
 	"github.com/gotd/td/tg"
 )
 
-const maxInlineDownload = 4 << 20
+const (
+	maxInlineDownload = 4 << 20
+	avatarGutter      = 5
+)
 
 func stillThumbnail(sizes []tg.PhotoSizeClass, makeLocation func(string) tg.InputFileLocationClass, dc int) *attachment {
 	var chosen *attachment
@@ -146,8 +149,12 @@ func (a *app) showMessageAvatars(c chat) bool {
 	return !a.display.HideAvatars && (c.key.kind != 'u' || a.display.showDMMessageAvatars())
 }
 
+func (a *app) showDirectAvatar(c chat) bool {
+	return c.key.kind == 'u' && c.key.id != a.accountID && !a.display.HideAvatars && !a.display.HideDMHeaderAvatar
+}
+
 func (a *app) directAvatarFile(c chat) *attachment {
-	if c.key.kind != 'u' || c.key.id == a.accountID || a.display.HideAvatars || a.display.HideDMHeaderAvatar {
+	if !a.showDirectAvatar(c) {
 		return nil
 	}
 
@@ -156,6 +163,16 @@ func (a *app) directAvatarFile(c chat) *attachment {
 	}
 
 	return c.avatar
+}
+
+func (a *app) renderAvatar(file *attachment, peer peerKey, name string) ([2]string, int) {
+	if avatar := a.inlineImages.Get(inlineAvatarKey(file)); avatar != nil && len(avatar.Rows) == 2 {
+		return [2]string{avatar.Rows[0], avatar.Rows[1]}, avatar.Width + 1
+	}
+
+	style := a.avatarStyle(peer, name)
+
+	return [2]string{style + placeholderInitials(name) + "\x1b[0m", style + "    \x1b[0m"}, avatarGutter
 }
 
 func (a *app) loadVisibleImages(out chan<- request) {

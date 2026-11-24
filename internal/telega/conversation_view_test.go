@@ -35,7 +35,7 @@ func TestChannelMessageBlocksKeepTheirContentTogether(t *testing.T) {
 	for _, fragment := range []string{
 		"\x1b[12;33H09:01", "[J] Ada · Earlier update",
 		"[Photo] board.jpg", "\x1b[14;41H" + strings.Repeat("x", 110) + "\x1b[0m", "\x1b[15;41Hxxxxx\x1b[0m", "👍 2",
-		"\x1b[9;33H09:00", "\x1b[9;39HAda", "[Video] bench.mp4",
+		"\x1b[9;38H09:00", "\x1b[9;44HAda", "[Video] bench.mp4",
 	} {
 		if !strings.Contains(out, fragment) {
 			t.Errorf("conversation lost %q", fragment)
@@ -95,7 +95,7 @@ func TestDirectMessagesUseSeparateBlocksForEachMessage(t *testing.T) {
 	}
 
 	out := screen.String()
-	for _, stamp := range []string{"\x1b[11;29H09:02", "\x1b[8;29H09:01", "\x1b[5;29H09:00", "→ You", "← Ada"} {
+	for _, stamp := range []string{"\x1b[11;34H09:02", "\x1b[8;34H09:01", "\x1b[5;34H09:00", "→ You", "← Ada"} {
 		if !strings.Contains(out, stamp) {
 			t.Errorf("private message block is missing %q", stamp)
 		}

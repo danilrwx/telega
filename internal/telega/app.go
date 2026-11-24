@@ -25,6 +25,7 @@ type app struct {
 	vimRequested                                   bool
 	draftStore                                     *tui.DraftStore
 	accountID                                      int64
+	accountName                                    string
 	loadedDraftKey                                 string
 	savedDraft                                     diskDraft
 	chats                                          []chat
@@ -172,7 +173,7 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 			a.authorAvatars = nil
 		}
 
-		a.accountID = e.accountID
+		a.accountID, a.accountName = e.accountID, e.text
 		a.rememberAvatar(peerKey{'u', e.accountID}, e.avatar)
 		a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder, cursor: a.dialogPage.cursor}})
 	case "chats":

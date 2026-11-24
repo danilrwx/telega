@@ -83,13 +83,7 @@ func (a *app) nicknameStyle(current chat, msg message) string {
 		peer = current.key
 	}
 
-	identity := ""
-	if peer.id != 0 {
-		identity = string(peer.kind) + ":" + strconv.FormatInt(peer.id, 10)
-	} else if msg.authorName != "" {
-		identity = "byline:" + msg.authorName
-	}
-
+	identity := senderColorKey(peer, msg.authorName)
 	if identity == "" {
 		return "\x1b[1m"
 	}
@@ -106,4 +100,31 @@ func (a *app) nicknameStyle(current chat, msg message) string {
 	}
 
 	return fmt.Sprintf("\x1b[1;%dm", color.ANSI)
+}
+
+func (a *app) avatarStyle(peer peerKey, name string) string {
+	color := tui.ColorForNick(senderColorKey(peer, name))
+
+	if !a.console {
+		switch a.palette() {
+		case &darkPalette:
+			return "\x1b[1;30;" + color.Dark.SGR(true) + "m"
+		case &lightPalette:
+			return "\x1b[1;97;" + color.Light.SGR(true) + "m"
+		}
+	}
+
+	return fmt.Sprintf("\x1b[1;30;%dm", color.ANSI+70)
+}
+
+func senderColorKey(peer peerKey, name string) string {
+	if peer.id != 0 {
+		return string(peer.kind) + ":" + strconv.FormatInt(peer.id, 10)
+	}
+
+	if name != "" {
+		return "byline:" + name
+	}
+
+	return ""
 }

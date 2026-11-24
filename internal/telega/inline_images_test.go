@@ -257,8 +257,10 @@ func TestDirectAvatarDisplaySettings(t *testing.T) {
 	a.toggleDisplaySetting()
 	frame.Reset()
 
+	outgoing, _ := a.renderAvatar(nil, peerKey{}, "You")
+
 	if err := paint(&frame, &a, 100, 25); err != nil || strings.Count(frame.String(), avatar.Rows[0]) != 2 ||
-		!strings.Contains(frame.String(), a.palette().selected+placeholderInitials("You")) {
+		!strings.Contains(frame.String(), outgoing[0]) {
 		t.Fatalf("message mode should preserve the header photo and add avatars beside messages: %v", err)
 	}
 
@@ -292,5 +294,43 @@ func TestDirectAvatarDisplaySettings(t *testing.T) {
 
 	if err := paint(&frame, &a, 100, 25); err != nil || strings.Contains(frame.String(), avatar.Rows[0]) {
 		t.Fatalf("the global setting should hide all avatars: %v", err)
+	}
+}
+
+func TestMissingAvatarsRenderInitialsWithoutGraphics(t *testing.T) {
+	sender := peerKey{'u', 42}
+	name := "Иван Петров"
+	a := app{
+		ready: true, open: true, colors: &darkPalette,
+		chats: []chat{{key: peerKey{'c', 7}, title: "Group", group: true}},
+		log:   []message{{id: 1, text: "Hello", author: sender, authorName: name}},
+	}
+
+	var frame bytes.Buffer
+
+	if err := paint(&frame, &a, 100, 25); err != nil {
+		t.Fatal(err)
+	}
+
+	style := a.avatarStyle(sender, name)
+	if style != a.avatarStyle(sender, "Different name") || !strings.Contains(frame.String(), style+" ИП ") {
+		t.Fatal("a sender without a profile photo should have colored initials keyed by peer ID")
+	}
+
+	a.chats[0] = chat{key: sender, title: name}
+	a.log = nil
+
+	frame.Reset()
+
+	if err := paint(&frame, &a, 100, 25); err != nil || !strings.Contains(frame.String(), style+" ИП ") {
+		t.Fatalf("a private chat without a profile photo should show the same initials in its header: %v", err)
+	}
+
+	a.display.HideDMHeaderAvatar = true
+
+	frame.Reset()
+
+	if err := paint(&frame, &a, 100, 25); err != nil || strings.Contains(frame.String(), style+" ИП ") {
+		t.Fatalf("the header avatar setting should also hide the initials: %v", err)
 	}
 }
