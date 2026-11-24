@@ -3,6 +3,8 @@ package tui
 import (
 	"bytes"
 	"fmt"
+	"image"
+	"image/draw"
 	"io"
 	"math"
 	"math/rand/v2"
@@ -43,6 +45,24 @@ func DecodeInlineImage(in io.Reader, cols, rows int) (*InlineImage, error) {
 func (im *TerminalImage) Inline(maxCols, maxRows int) *InlineImage {
 	placement, _ := im.inlinePlacement(maxCols, maxRows)
 	return placement
+}
+
+// DecodeInlineAvatar fits a profile picture into a two-row message gutter.
+func DecodeInlineAvatar(in io.Reader) (*InlineImage, error) {
+	avatar, err := decodeTerminalImage(in, 64, sixelGraphics())
+	if err != nil {
+		return nil, err
+	}
+
+	if avatar.width != avatar.height {
+		side := min(avatar.width, avatar.height)
+		crop := image.NewNRGBA(image.Rect(0, 0, side, side))
+		origin := avatar.source.Bounds().Min.Add(image.Pt((avatar.width-side)/2, (avatar.height-side)/2))
+		draw.Draw(crop, crop.Bounds(), avatar.source, origin, draw.Src)
+		avatar.source, avatar.width, avatar.height = crop, side, side
+	}
+
+	return avatar.inlinePlacement(4, 2)
 }
 
 var kittyRowMarks = []rune("\u0305\u030d\u030e\u0310\u0312\u033d\u033e\u033f\u0346\u034a\u034b\u034c" +
@@ -301,4 +321,24 @@ func ReactionBadges(prefix string, badges []ReactionBadge, width int) string {
 	}
 
 	return text
+}
+
+var inlineTextReplacer = func() *strings.Replacer {
+	pairs := make([]string, 0, 2*(len(kittyRowMarks)+1))
+	for _, mark := range kittyRowMarks {
+		pairs = append(pairs, inlinePlaceholder+string(mark), " ")
+	}
+
+	pairs = append(pairs, inlinePlaceholder, " ")
+
+	return strings.NewReplacer(pairs...)
+}()
+
+// WithoutInlineImages clears graphics cells while keeping the text layout intact.
+func WithoutInlineImages(frame string) string {
+	if !strings.Contains(frame, inlinePlaceholder) {
+		return frame
+	}
+
+	return inlineTextReplacer.Replace(frame)
 }

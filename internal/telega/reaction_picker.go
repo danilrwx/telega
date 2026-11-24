@@ -273,10 +273,8 @@ func (a *app) submitReaction(choice reactionChoice, out chan<- request) {
 	a.ask(out, request{kind: "react", chat: a.currentChat(), anchor: msg.id, reactions: toggleReactions(chosen, choice)})
 }
 
-func (a *app) paintReactionPicker(label func(int, int, int, string), statusRow, rows, cols int) {
+func (a *app) renderEmojiCatalog(width, height int, row func(string, bool, bool, bool)) {
 	results := a.reactionMatches()
-	label(2, statusRow, cols-2, "/ "+a.reactionQuery)
-	room := rows - statusRow - 1
 
 	notice := a.status
 	if notice == "Reaction updated" {
@@ -296,16 +294,10 @@ func (a *app) paintReactionPicker(label func(int, int, int, string), statusRow, 
 		notice = "No matching reactions"
 	}
 
-	if notice != "" && room > 0 {
-		room--
-
-		label(2, rows-1, cols-2, notice)
-	}
-
-	start := max(0, min(a.reactionIndex-room+1, len(results)-room))
+	choices := make([]string, 0, len(results))
 	msg, _ := a.reactionMessage()
 
-	for i, choice := range results[start:min(len(results), start+room)] {
+	for _, choice := range results {
 		text := strings.TrimSpace(choice.emoji + " " + choice.title)
 		if choice.emoji != "" {
 			switch {
@@ -322,11 +314,17 @@ func (a *app) paintReactionPicker(label func(int, int, int, string), statusRow, 
 			text += " ✓"
 		}
 
-		prefix := "  "
-		if i+start == a.reactionIndex {
-			prefix = "› "
-		}
-
-		label(2, statusRow+i+1, cols-2, prefix+tui.Clip(text, cols-4))
+		choices = append(choices, text)
 	}
+
+	hint := "↑↓ choose  Enter toggle  Tab quick  Esc back"
+	if tui.ImageGraphics() && width >= 65 {
+		hint += "  Ctrl+O preview"
+	}
+
+	if width < 44 {
+		hint = "↑↓ Enter Tab Esc"
+	}
+
+	tui.SearchListDialog("Reactions", "/ "+a.reactionQuery+"▏", choices, a.reactionIndex, width, height, notice, hint, row)
 }

@@ -276,8 +276,12 @@ func (p *FilePicker) Render(width, height int, render func(string, bool, bool, b
 	render(Clip(p.Status, width), false, false, false)
 
 	hint := "↑↓ choose  Tab complete  Enter attach  Ctrl+T text file  Esc back"
-	if width < 60 {
+	if width < 62 {
 		hint = "↑↓ Tab Enter ^T Esc"
+	}
+
+	if width < 20 {
+		hint = "↑↓ Tab ↵ ^T Esc"
 	}
 
 	render(Clip(hint, width), false, false, true)

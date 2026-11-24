@@ -15,6 +15,8 @@ func TestSharedFilePickerDraftWorkflow(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	t.Setenv("PATH", state)
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "")
 
 	if err := os.WriteFile(filepath.Join(state, "vim"), []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)

@@ -125,7 +125,16 @@ func (a *app) clearComposer() {
 }
 
 func (a *app) resetChat() {
+	if a.voice != nil {
+		a.voice.discard = true
+		a.voice.cancel()
+	}
+
 	a.cancelHistory()
+	a.closeForward()
+	a.closeChatPicker()
+	a.closeMessageSearch()
+	a.transcript = nil
 
 	if a.thread != nil {
 		a.jumps = a.jumps[:a.threadJumpBase]
@@ -141,11 +150,13 @@ func (a *app) resetChat() {
 	a.olderEnd, a.newerTrimmed, a.messageQuery = false, false, ""
 	a.revealID, a.prefetchAnchor = 0, 0
 	a.selection = nil
-	a.searching, a.historySearch, a.prefixG = false, false, false
+	a.searching, a.prefixG = false, false
 }
 
 func (a *app) openChat(out chan<- request, index int) {
 	a.selected, a.open, a.status = index, true, ""
+
+	a.chatQuery, a.search = "", nil
 	if a.demo {
 		for _, msg := range demoHistory(a.chats[index]) {
 			a.insert(msg, false)
@@ -282,74 +293,6 @@ func (a *app) submitDraft(out chan<- request) {
 	a.offset = 0
 }
 
-func (a *app) beginForward() {
-	if a.demo || a.pending != "" || len(a.log) == 0 && len(a.selection) == 0 {
-		return
-	}
-
-	if a.currentChat().protected {
-		a.status = "This chat restricts forwarding"
-		return
-	}
-
-	a.forwardIDs = a.selectedMessages()
-	a.forwardIndex, a.forwardQuery, a.forwardConfirm = 0, "", false
-}
-
-func (a *app) forwardChats() []int {
-	var indexes []int
-
-	for i, c := range a.chats {
-		if strings.Contains(strings.ToLower(c.title), strings.ToLower(a.forwardQuery)) {
-			indexes = append(indexes, i)
-		}
-	}
-
-	return indexes
-}
-
-func (a *app) forwardInput(k key, out chan<- request) {
-	indexes := a.forwardChats()
-	if a.forwardConfirm {
-		k = commandKey(k)
-		switch {
-		case k.name == "escape":
-			a.forwardConfirm = false
-		case k.name == "" && k.text == "y":
-			a.ask(out, request{kind: "forward", chat: a.currentChat(), to: a.forwardTo, ids: a.forwardIDs})
-			a.forwardIDs, a.forwardConfirm = nil, false
-		}
-
-		return
-	}
-
-	switch k.name {
-	case "escape":
-		a.forwardIDs = nil
-	case "up", "previousChat":
-		a.forwardIndex = max(0, a.forwardIndex-1)
-	case "down", "nextChat":
-		a.forwardIndex = min(a.forwardIndex+1, max(0, len(indexes)-1))
-	case "enter":
-		if len(indexes) > 0 {
-			a.forwardTo = a.chats[indexes[a.forwardIndex]]
-			a.forwardConfirm = true
-		}
-	case "erase":
-		query := []rune(a.forwardQuery)
-		if len(query) > 0 {
-			a.forwardQuery = string(query[:len(query)-1])
-		}
-
-		a.forwardIndex = 0
-	default:
-		if text := strings.TrimSpace(k.text); text != "" || k.text == " " {
-			a.forwardQuery = limitText(a.forwardQuery+k.text, 128)
-			a.forwardIndex = 0
-		}
-	}
-}
-
 func (a *app) copyMessage() {
 	if len(a.log) == 0 {
 		return
@@ -395,6 +338,8 @@ func (a *app) authorLabel(msg message) string {
 
 func (a *app) rememberAuthors(messages []message) {
 	for _, msg := range messages {
+		a.rememberAvatar(a.avatarAuthor(msg), msg.avatar)
+
 		if msg.author.id != 0 && msg.authorName != "" && msg.authorDirectoryName {
 			a.rememberAuthor(msg.author, msg.authorName)
 		}

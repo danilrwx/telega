@@ -58,6 +58,10 @@ func fileFromMedia(media tg.MessageMediaClass) *attachment {
 				if attr.Duration > 0 {
 					file.duration = int(min(math.Ceil(attr.Duration), math.MaxInt32))
 				}
+			case *tg.DocumentAttributeAudio:
+				if attr.Voice {
+					file.kind, file.duration = "Voice", attr.Duration
+				}
 			}
 		}
 
@@ -68,7 +72,7 @@ func fileFromMedia(media tg.MessageMediaClass) *attachment {
 			}
 		}
 
-		if tui.InlineImageFile(file.name, file.mime) {
+		if file.kind == "Video" || tui.InlineImageFile(file.name, file.mime) {
 			file.thumbnail = stillThumbnail(doc.Thumbs, func(kind string) tg.InputFileLocationClass {
 				return doc.AsInputDocumentFileLocation(kind)
 			}, doc.DCID)
@@ -190,6 +194,10 @@ func (file *attachment) cacheDownload(stream func(io.Writer) error) (string, err
 		return "", errors.New("unsupported attachment")
 	}
 
+	return cacheAttachment(key, file.name, file.size, stream)
+}
+
+func cacheAttachment(key, name string, size int64, stream func(io.Writer) error) (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
@@ -205,9 +213,9 @@ func (file *attachment) cacheDownload(stream func(io.Writer) error) (string, err
 		return "", err
 	}
 
-	path := filepath.Join(dir, fileName(file.name))
+	path := filepath.Join(dir, fileName(name))
 	if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o077 == 0 &&
-		(file.size <= 0 || info.Size() == file.size) {
+		(size <= 0 || info.Size() == size) {
 		return path, nil
 	}
 
@@ -222,14 +230,14 @@ func (file *attachment) cacheDownload(stream func(io.Writer) error) (string, err
 		return "", err
 	}
 
-	if file.size > 0 {
+	if size > 0 {
 		info, err := os.Stat(out.Name())
 		if err != nil {
 			return "", err
 		}
 
-		if info.Size() != file.size {
-			return "", fmt.Errorf("incomplete attachment: got %d of %d bytes", info.Size(), file.size)
+		if info.Size() != size {
+			return "", fmt.Errorf("incomplete attachment: got %d of %d bytes", info.Size(), size)
 		}
 	}
 

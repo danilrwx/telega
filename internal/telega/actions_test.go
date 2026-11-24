@@ -51,7 +51,7 @@ func TestMessageLinks(t *testing.T) {
 	}
 
 	if output := screen.String(); !strings.Contains(output, "› label") ||
-		!strings.Contains(output, "\x1b[23;2Hhttps://example.com/actual") || strings.Contains(output, "hidden") {
+		!strings.Contains(output, "╭") || !strings.Contains(output, "https://example.com/actual") || strings.Contains(output, "hidden") {
 		t.Fatalf("unexpected link chooser: %q", output)
 	}
 
@@ -85,10 +85,12 @@ func TestDeletionConfirmationAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if output := screen.String(); !strings.Contains(output, "\x1b[23;2HDelete 2 messages for you?") ||
-		!strings.Contains(output, "\x1b[24;2Hy confirm deletion  Esc cancel") ||
+	popup := a.dialogPopup(80, 24)
+	if output := screen.String(); popup.X <= 0 || popup.Y <= 0 ||
+		!strings.Contains(output, "Delete 2 messages for you?") ||
+		!strings.Contains(output, "y confirm deletion  Esc cancel") ||
 		!strings.Contains(output, "Message") {
-		t.Fatalf("confirmation should sit below the visible conversation: %q", output)
+		t.Fatalf("confirmation should float over the conversation: %q", output)
 	}
 
 	a.input(key{name: "escape"}, requests)

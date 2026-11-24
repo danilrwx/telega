@@ -192,6 +192,10 @@ func (a *app) pickReaction(k key, out chan<- request) {
 		return
 	}
 
+	if !a.reactionPickerOpen && k.name == "" && commandKey(k).text == "z" {
+		k.name = "escape"
+	}
+
 	switch k.name {
 	case "escape":
 		if a.pending == "react" && len(a.reactionQueue) > 0 {

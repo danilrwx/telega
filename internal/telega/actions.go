@@ -134,7 +134,7 @@ func (a *app) chooseLink(msg message) {
 
 func (a *app) linkInput(k key) {
 	switch {
-	case k.name == "escape" || k.name == "left" || k.text == "h":
+	case k.name == "escape" || k.name == "left" || k.name == "" && (k.text == "h" || k.text == "o" || k.text == "O"):
 		a.linkChoices = nil
 	case k.name == "enter":
 		a.openTarget = a.linkChoices[a.linkIndex].url

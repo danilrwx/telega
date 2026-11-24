@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/danilrwx/telega/tui"
 	"github.com/gotd/td/tg"
 	"github.com/rivo/uniseg"
@@ -19,16 +21,35 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 		title = fmt.Sprintf("[%d selected] %s", len(a.selection), title)
 	}
 
+	direct := current.key.kind == 'u'
+	firstMessageRow := 2
+	titleColumn := left + 1
+
+	if avatar := a.inlineImages.Get(inlineAvatarKey(a.directAvatarFile(current))); avatar != nil && len(avatar.Rows) == 2 {
+		fmt.Fprintf(b, "\x1b[1;%dH%s\x1b[2;%dH%s", titleColumn, avatar.Rows[0], titleColumn, avatar.Rows[1])
+		titleColumn += avatar.Width + 1
+		firstMessageRow++
+	}
+
+	width := cols - titleColumn + 1
+
 	b.WriteString(colors.heading)
-	label(left+1, 1, cols-left-1, title)
+	label(titleColumn, 1, width, title)
 	b.WriteString("\x1b[0m")
+
+	if presence := presenceText(current.presence, time.Now()); presence != "" {
+		firstMessageRow = 3
+
+		b.WriteString(colors.muted)
+		label(titleColumn, 2, width, presence)
+		b.WriteString("\x1b[0m")
+	}
 
 	broadcast := current.key.kind == 'c' && !current.group
 	body := left + 8
 	bodyWidth := cols - body + 1
 	bottom := statusRow
-
-	const firstMessageRow = 2
+	messageAvatars := a.inlineImages != nil && a.showMessageAvatars(current)
 
 	var (
 		sawUnread bool
@@ -53,10 +74,16 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 		}
 
 		switch {
-		case current.key.kind == 'u' && msg.out:
-			author, style = "→ You", colors.outgoing
-		case current.key.kind == 'u':
-			author = "← " + shortSender(current.title, bodyWidth)
+		case direct && msg.out:
+			author, style = "→", colors.outgoing
+			if !a.display.HideDMNames {
+				author += " You"
+			}
+		case direct:
+			author = "←"
+			if !a.display.HideDMNames {
+				author += " " + shortSender(current.title, bodyWidth)
+			}
 		case broadcast && author == current.title:
 			author = ""
 		case !broadcast && author == "":
@@ -87,7 +114,13 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			metadata = append(metadata, "edited")
 		}
 
-		hasHeader := author != "" || len(metadata) > 0
+		var avatar *tui.InlineImage
+
+		if messageAvatars {
+			avatar = a.inlineImages.Get(inlineAvatarKey(a.avatarFile(msg, current)))
+		}
+
+		hasHeader := author != "" || len(metadata) > 0 || avatar != nil
 
 		minRows := 1
 		if hasHeader {
@@ -153,7 +186,14 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			limit--
 		}
 
-		lines := a.messageLines(msg, bodyWidth, limit)
+		right := direct && a.display.DMRight && msg.out && !msg.service
+		messageWidth := bodyWidth
+
+		if right {
+			messageWidth = min(bodyWidth, max(18, bodyWidth*2/3))
+		}
+
+		lines := a.messageLines(msg, messageWidth, limit)
 		bottom -= len(lines)
 		first := bottom
 
@@ -163,31 +203,72 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 
 		a.visibleMessages++
 
+		var avatarRows [2]string
+
+		avatarOffset := 0
+
+		if header && len(lines) > 0 && messageAvatars && messageWidth > 12 {
+			if avatar != nil && len(avatar.Rows) == 2 {
+				avatarRows = [2]string{avatar.Rows[0], avatar.Rows[1]}
+				avatarOffset = avatar.Width + 1
+			} else if direct {
+				name := current.title
+				if msg.out {
+					name = "You"
+				}
+
+				avatarRows = [2]string{colors.selected + placeholderInitials(name) + "\x1b[0m", colors.selected + "    \x1b[0m"}
+				avatarOffset = 5
+			}
+		}
+
+		mark := strings.Join(metadata, " · ")
+		if author != "" && mark != "" {
+			mark = " · " + mark
+		}
+
+		headerWidth := messageWidth + 2 - avatarOffset
+		author = tui.Wrap(author, max(1, headerWidth-uniseg.StringWidth(mark)), 1)[0]
+		authorWidth := uniseg.StringWidth(author)
+
+		blockLeft := left
+
+		if right {
+			extent := 5 + avatarOffset
+			if header {
+				extent = max(extent, 6+avatarOffset+min(headerWidth, authorWidth+uniseg.StringWidth(mark)))
+			}
+
+			for _, line := range lines {
+				extent = max(extent, body-left+ansi.StringWidth(line))
+			}
+
+			blockLeft = max(left, cols-extent)
+		}
+
+		if avatarOffset > 0 {
+			fmt.Fprintf(b, "\x1b[%d;%dH%s", bottom, blockLeft, avatarRows[0])
+			fmt.Fprintf(b, "\x1b[%d;%dH%s", first, blockLeft, avatarRows[1])
+		}
+
+		timeColumn := blockLeft + avatarOffset
+
 		b.WriteString(colors.muted)
-		label(left, bottom, 5, msg.date.UTC().Format("15:04"))
+		label(timeColumn, bottom, 5, msg.date.UTC().Format("15:04"))
 		b.WriteString("\x1b[0m")
 
 		if header {
-			width := bodyWidth + 2
-			mark := strings.Join(metadata, " · ")
+			x := timeColumn + 6
 
 			if author != "" {
-				if mark != "" {
-					mark = " · " + mark
-				}
-
-				author = tui.Wrap(author, max(1, width-uniseg.StringWidth(mark)), 1)[0]
-
 				b.WriteString(style)
-				label(left+6, bottom, width, author)
+				label(x, bottom, headerWidth, author)
 				b.WriteString("\x1b[0m")
 			}
 
 			if mark != "" {
-				authorWidth := uniseg.StringWidth(author)
-
 				b.WriteString(colors.muted)
-				label(left+6+authorWidth, bottom, width-authorWidth, mark)
+				label(x+authorWidth, bottom, headerWidth-authorWidth, mark)
 				b.WriteString("\x1b[0m")
 			}
 		}
@@ -197,13 +278,13 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 				b.WriteString("\x1b[7m")
 			}
 
-			label(left-1, bottom, 1, "*")
+			label(blockLeft-1, bottom, 1, "*")
 
 			if i == 0 {
 				b.WriteString("\x1b[0m")
 			}
 		} else if i == 0 {
-			label(left-1, bottom, 1, "›")
+			label(blockLeft-1, bottom, 1, "›")
 		}
 
 		railStyle := colors.railMuted
@@ -211,9 +292,10 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			railStyle = colors.rail
 		}
 
+		blockBody := body + blockLeft - left
 		for row, line := range lines {
-			fmt.Fprintf(b, "\x1b[%d;%dH%s│\x1b[0m", first+row, body-2, railStyle)
-			fmt.Fprintf(b, "\x1b[%d;%dH%s\x1b[0m", first+row, body, line)
+			fmt.Fprintf(b, "\x1b[%d;%dH%s│\x1b[0m", first+row, blockBody-2, railStyle)
+			fmt.Fprintf(b, "\x1b[%d;%dH%s\x1b[0m", first+row, blockBody, line)
 		}
 
 		newerDay = day
@@ -232,4 +314,31 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 	if len(a.log) == 0 && a.pending == "" {
 		label(left, firstMessageRow, cols-left, "No messages")
 	}
+}
+
+func placeholderInitials(name string) string {
+	var initials []rune
+
+	for _, part := range strings.Fields(name) {
+		for _, r := range part {
+			if unicode.IsLetter(r) || unicode.IsNumber(r) {
+				initials = append(initials, unicode.ToUpper(r))
+				break
+			}
+		}
+
+		if len(initials) == 2 {
+			break
+		}
+	}
+
+	if len(initials) == 0 {
+		initials = []rune{'·'}
+	}
+
+	text := tui.Clip(string(initials), 4)
+	width := uniseg.StringWidth(text)
+	left := (4 - width) / 2
+
+	return strings.Repeat(" ", left) + text + strings.Repeat(" ", 4-width-left)
 }

@@ -297,3 +297,23 @@ func TestAttachmentNameAndSystemOpen(t *testing.T) {
 		t.Fatalf("wrong opener argument: %q, %v", data, err)
 	}
 }
+
+func TestUnreadSidebarRetainsOpenChatAfterRead(t *testing.T) {
+	a := app{ready: true, demo: true, unreadOnly: true, chats: []chat{
+		{key: peerKey{'u', 2}, title: "First chat", unread: unreadState{count: 1}},
+		{key: peerKey{'u', 3}, title: "Second chat", unread: unreadState{count: 1}},
+		{key: peerKey{'u', 4}, title: "Already read"},
+	}}
+	a.input(key{name: "enter"}, nil)
+	a.receive(nil, serverEvent{kind: "read", chat: a.chats[0].key, unread: unreadState{inboxID: 10}})
+
+	if got := a.visibleChats(); !slices.Equal(got, []int{0, 1}) || a.chats[0].unread.any() {
+		t.Fatalf("open read chat should stay visible with the unread chat: %v", got)
+	}
+
+	a.input(key{name: "nextChat"}, nil)
+
+	if got := a.visibleChats(); !slices.Equal(got, []int{1}) || a.selected != 1 {
+		t.Fatalf("after switching, previous read chat should leave the sidebar: %v", got)
+	}
+}

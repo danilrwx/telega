@@ -2,11 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rivo/uniseg"
 )
 
-// Confirmation describes a question and its actions in the conversation footer.
+// Confirmation describes a question and its actions.
 type Confirmation struct {
 	Prompt, ShortPrompt, Action string
 }
@@ -24,6 +27,21 @@ func (c Confirmation) Footer(width int) (status, keys string) {
 	}
 
 	return Clip(prompt, width), Clip(keys, width)
+}
+
+// Render lays out a confirmation question and its keyboard actions.
+func (c Confirmation) Render(width, _ int, row func(string, bool, bool, bool)) {
+	_, keys := c.Footer(width)
+	for _, line := range strings.Split(ansi.Wrap(c.Prompt, width, ""), "\n") {
+		row(line, true, false, false)
+	}
+
+	if width < 21 {
+		keys = "y yes  Esc no"
+	}
+
+	row("", false, false, false)
+	row(keys, false, false, true)
 }
 
 // DeleteConfirmation builds the common prompt for deleting messages.

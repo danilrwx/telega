@@ -34,7 +34,7 @@ func peerChats(users []tg.UserClass, groups []tg.ChatClass) map[peerKey]chat {
 		if u.Self {
 			peers[key] = chat{key: key, title: "Saved Messages", input: &tg.InputPeerSelf{}}
 		} else if u.AccessHash != 0 && !u.Min {
-			peers[key] = chat{key: key, title: limitText(title, 128), input: &tg.InputPeerUser{UserID: u.ID, AccessHash: u.AccessHash}}
+			peers[key] = chat{key: key, title: limitText(title, 128), username: u.Username, input: &tg.InputPeerUser{UserID: u.ID, AccessHash: u.AccessHash}, presence: u.Status, avatar: userAvatar(u)}
 		}
 	}
 
@@ -46,7 +46,7 @@ func peerChats(users []tg.UserClass, groups []tg.ChatClass) map[peerKey]chat {
 		case *tg.Channel:
 			if c.AccessHash != 0 && !c.Min {
 				key := peerKey{'c', c.ID}
-				peers[key] = chat{key: key, group: c.Megagroup, forum: c.Forum, protected: c.Noforwards, title: limitText(c.Title, 128), input: &tg.InputPeerChannel{ChannelID: c.ID, AccessHash: c.AccessHash}}
+				peers[key] = chat{key: key, group: c.Megagroup, forum: c.Forum, protected: c.Noforwards, title: limitText(c.Title, 128), username: c.Username, input: &tg.InputPeerChannel{ChannelID: c.ID, AccessHash: c.AccessHash}}
 			}
 		}
 	}

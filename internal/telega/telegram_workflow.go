@@ -10,6 +10,17 @@ import (
 )
 
 func resolveAuthor(msg message, entities tg.Entities) message {
+	if msg.avatarPeer.id == 0 && msg.out && !msg.service {
+		for id, user := range entities.Users {
+			if user != nil && user.Self {
+				msg.avatarPeer = peerKey{'u', id}
+				break
+			}
+		}
+	}
+
+	msg.avatar = entityAvatar(msg.avatarPeer, entities)
+
 	if msg.forward != nil {
 		source := *msg.forward
 		if source.name == "" {
@@ -32,6 +43,45 @@ func resolveAuthor(msg message, entities tg.Entities) message {
 	}
 
 	return msg
+}
+
+func entityAvatar(peer peerKey, entities tg.Entities) *attachment {
+	switch peer.kind {
+	case 'u':
+		return userAvatar(entities.Users[peer.id])
+	case 'g':
+		if chat := entities.Chats[peer.id]; chat != nil {
+			if photo, ok := chat.Photo.(*tg.ChatPhoto); ok {
+				return profileThumbnail(chat.AsInputPeer(), photo.PhotoID, photo.DCID)
+			}
+		}
+	case 'c':
+		if channel := entities.Channels[peer.id]; channel != nil {
+			if photo, ok := channel.Photo.(*tg.ChatPhoto); ok {
+				return profileThumbnail(channel.AsInputPeer(), photo.PhotoID, photo.DCID)
+			}
+		}
+	}
+
+	return nil
+}
+
+func userAvatar(user *tg.User) *attachment {
+	if user != nil {
+		if photo, ok := user.Photo.(*tg.UserProfilePhoto); ok {
+			return profileThumbnail(user.AsInputPeer(), photo.PhotoID, photo.DCID)
+		}
+	}
+
+	return nil
+}
+
+func profileThumbnail(peer tg.InputPeerClass, id int64, dc int) *attachment {
+	if id == 0 || dc == 0 {
+		return nil
+	}
+
+	return &attachment{dc: dc, location: &tg.InputPeerPhotoFileLocation{Peer: peer, PhotoID: id}}
 }
 
 func entityName(peer peerKey, entities tg.Entities) string {
@@ -58,7 +108,7 @@ func entityName(peer peerKey, entities tg.Entities) string {
 	return limitText(name, 80)
 }
 
-func lookupAuthor(ctx context.Context, api *tg.Client, req request) string {
+func lookupAuthor(ctx context.Context, api *tg.Client, req request) (string, *attachment) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
@@ -66,15 +116,17 @@ func lookupAuthor(ctx context.Context, api *tg.Client, req request) string {
 		Peer: req.chat.input, MsgID: req.anchor, UserID: req.author.id,
 	}})
 	if err != nil {
-		return ""
+		return "", nil
 	}
 
-	return entityName(req.author, tg.EntitiesFrom(users, nil))
+	entities := tg.EntitiesFrom(users, nil)
+
+	return entityName(req.author, entities), entityAvatar(req.author, entities)
 }
 
 func searchHistory(ctx context.Context, api *tg.Client, req request) ([]message, error) {
 	query := &tg.MessagesSearchRequest{
-		Peer: req.chat.input, Q: req.text, Filter: &tg.InputMessagesFilterEmpty{}, OffsetID: req.anchor, Limit: historyLimit,
+		Peer: req.chat.input, Q: req.text, Filter: telegramSearchFilter(req.searchFilter), OffsetID: req.anchor, Limit: historyLimit,
 	}
 	if req.chat.threadID != 0 {
 		query.SetTopMsgID(req.chat.threadID)

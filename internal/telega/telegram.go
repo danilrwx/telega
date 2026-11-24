@@ -24,10 +24,12 @@ type chat struct {
 	threadID                int
 	threadClosed            bool
 	key                     peerKey
-	title                   string
+	title, username         string
 	input                   tg.InputPeerClass
 	unread                  unreadState
 	readOutboxID            int
+	presence                tg.UserStatusClass
+	avatar                  *attachment
 }
 type peerKey struct {
 	kind byte
@@ -48,7 +50,8 @@ func keyFor(peer tg.PeerClass) peerKey {
 }
 
 type message struct {
-	author                                  peerKey
+	author, avatarPeer                      peerKey
+	avatar                                  *attachment
 	authorName                              string
 	authorDirectoryName, service, protected bool
 	reply                                   messageReply
@@ -80,12 +83,18 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 		text = limitText(text, inputLimit)
 
 		reactions, hasReactions := msg.GetReactions()
+		peer, author := keyFor(msg.PeerID), keyFor(msg.FromID)
+		avatarPeer := author
 
-		return keyFor(msg.PeerID), message{
+		if avatarPeer.id == 0 && (!msg.Out || msg.Post) {
+			avatarPeer = peer
+		}
+
+		return peer, message{
 			reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions,
 			chosenReactions: reactionChoices(reactions, true), messageReactions: reactionChoices(reactions, false),
 			comments: msg.Replies.Comments, commentCount: msg.Replies.Replies,
-			author: keyFor(msg.FromID), authorName: limitText(msg.PostAuthor, 80), protected: msg.Noforwards,
+			author: author, avatarPeer: avatarPeer, authorName: limitText(msg.PostAuthor, 80), protected: msg.Noforwards,
 			id: msg.ID, text: text, date: time.Unix(int64(msg.Date), 0), edited: msg.EditDate > 0 && !msg.EditHide,
 			out: msg.Out, reply: replyInfo(msg.ReplyTo), forward: forwardInfo(msg.FwdFrom), attachment: fileFromMedia(msg.Media), spans: spans, links: messageLinks(text, msg.Entities, spans), mentioned: msg.Mentioned,
 		}, true
@@ -104,7 +113,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 }
 
 type request struct {
-	historyID           uint64
+	historyID, searchID uint64
 	historyCtx          context.Context
 	page                dialogPage
 	topics              topicPage
@@ -126,11 +135,18 @@ type request struct {
 	reactionDocument    int64
 	reactionAuthors     *tui.ReactionAuthors
 	textReactions       bool
+	messageSearch       *tui.MessageSearch
+	searchCursor        messageSearchCursor
+	browseAttachments   bool
+	searchFilter        int
+	transcript          *voiceTranscript
 }
 
 type serverEvent struct {
-	historyID                         uint64
+	historyID, searchID               uint64
 	accountID                         int64
+	avatar                            *attachment
+	presence                          tg.UserStatusClass
 	page                              dialogPage
 	topics                            topicPage
 	thread                            *chat
@@ -154,10 +170,17 @@ type serverEvent struct {
 	reactionAuthors                   *tui.ReactionAuthors
 	reactionAuthorRows                []string
 	reactionChoiceKnown               bool
+	playVoice                         bool
 	chosenReactions, messageReactions []reactionChoice
 	inlineImage                       *tui.InlineImage
 	unread                            unreadState
 	upload                            *uploadAttachment
+	messageSearch                     *tui.MessageSearch
+	searchCursor                      messageSearchCursor
+	messageHits                       []messageHit
+	transcript                        *voiceTranscript
+	transcriptID                      int64
+	transcriptPending                 bool
 }
 
 func loadHistory(ctx context.Context, api *tg.Client, req request) ([]message, error) {
@@ -288,8 +311,16 @@ func sendMessage(ctx context.Context, api *tg.Client, req request) (message, err
 func dispatchUpdates(ctx context.Context, dispatch tg.UpdateDispatcher, onNew tg.AnyMessageHandler, update tg.UpdatesClass) error {
 	switch short := update.(type) {
 	case *tg.UpdateShortMessage:
+		peer := &tg.PeerUser{UserID: short.UserID}
+
+		var from tg.PeerClass
+
+		if !short.Out {
+			from = peer
+		}
+
 		return onNew(ctx, tg.Entities{}, &tg.Message{
-			PeerID: &tg.PeerUser{UserID: short.UserID}, FromID: &tg.PeerUser{UserID: short.UserID}, ID: short.ID,
+			PeerID: peer, FromID: from, ID: short.ID,
 			Date: short.Date, Message: short.Message, Out: short.Out, Mentioned: short.Mentioned,
 			Entities: short.Entities, ReplyTo: short.ReplyTo, FwdFrom: short.FwdFrom,
 		})
@@ -324,6 +355,17 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 	dispatch.OnAnyNewMessage(onNew)
 	dispatch.OnAnyEditMessage(forward("live"))
 	dispatch.OnMessageReactions(reactionUpdates(events))
+	dispatch.OnTranscribedAudio(func(ctx context.Context, _ tg.Entities, update *tg.UpdateTranscribedAudio) error {
+		return emit(ctx, events, serverEvent{
+			kind: "voiceTranscript", chat: keyFor(update.Peer), anchor: update.MsgID, text: update.Text,
+			transcriptID: update.TranscriptionID, transcriptPending: update.Pending,
+		})
+	})
+	dispatch.OnUserStatus(func(ctx context.Context, _ tg.Entities, update *tg.UpdateUserStatus) error {
+		return emit(ctx, events, serverEvent{
+			kind: "presence", chat: peerKey{'u', update.UserID}, presence: update.Status,
+		})
+	})
 	dispatch.OnNotifySettings(func(context.Context, tg.Entities, *tg.UpdateNotifySettings) error {
 		notifyChanged.Store(true)
 
@@ -380,18 +422,26 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 	})
 
 	return client.Run(ctx, func(ctx context.Context) error {
-		if err := login(ctx, client, loginUI{requests, events}, qrMode, loggedIn, cfg); err != nil {
+		status, err := client.Auth().Status(ctx)
+		if err != nil {
 			return err
 		}
 
-		accountID, _, _ := client.SelfID()
-		if accountID == 0 {
-			if self, err := client.Self(ctx); err == nil {
-				accountID = self.ID
+		self := status.User
+		if !status.Authorized {
+			if err := login(ctx, client, loginUI{requests, events}, qrMode, loggedIn, cfg); err != nil {
+				return err
 			}
+
+			self, _ = client.Self(ctx)
 		}
 
-		if err := emit(ctx, events, serverEvent{kind: "ready", accountID: accountID}); err != nil {
+		accountID, _, _ := client.SelfID()
+		if self != nil {
+			accountID = self.ID
+		}
+
+		if err := emit(ctx, events, serverEvent{kind: "ready", accountID: accountID, avatar: userAvatar(self)}); err != nil {
 			return err
 		}
 
@@ -446,7 +496,8 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 				case "discussion":
 					value.thread, err = loadDiscussion(ctx, api, req)
 				case "author":
-					value.author, value.text = req.author, lookupAuthor(ctx, api, req)
+					value.author = req.author
+					value.text, value.avatar = lookupAuthor(ctx, api, req)
 				case "prefetch":
 					value.log, err = loadHistory(ctx, api, req)
 					if err != nil {
@@ -454,14 +505,34 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 					}
 				case "unread":
 					value.log, value.anchor, err = findUnread(ctx, api, req)
-				case "searchHistory":
-					value.log, err = searchHistory(ctx, api, req)
+				case "messageSearch":
+					go func() {
+						hits, next, searchErr := searchMessages(ctx, api, req)
+
+						event := serverEvent{
+							kind: req.kind, searchID: req.searchID, messageSearch: req.messageSearch,
+							anchor: req.searchCursor.id, messageHits: hits, searchCursor: next,
+						}
+						if searchErr != nil {
+							event.hint = searchErr.Error()
+						}
+
+						_ = emit(ctx, events, event)
+					}()
+
+					continue
 				case "reactionAuthors":
 					go func(req request, value serverEvent) {
 						value.reactionAuthors = req.reactionAuthors
 						value.reactionAuthorRows, value.text = fetchReactionAuthors(ctx, req, api.MessagesGetMessageReactionsList, api.MessagesGetCustomEmojiDocuments)
 						_ = emit(ctx, events, value)
 					}(req, value)
+
+					continue
+				case "voiceTranscript":
+					go func() {
+						_ = emit(ctx, events, fetchVoiceTranscript(ctx, api, req, value))
+					}()
 
 					continue
 				case "react", "reactionCatalog":
@@ -500,6 +571,22 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 					}
 				case "edit":
 					value.log, err = editMessage(ctx, api, req)
+				case "chatDirectory":
+					go streamChatDirectory(ctx, api, events)
+					continue
+				case "directorySearch":
+					go func() {
+						chats, searchErr := searchTelegramContacts(ctx, api, req.text)
+
+						event := serverEvent{kind: req.kind, searchID: req.searchID, chats: chats}
+						if searchErr != nil {
+							event.hint = "Telegram search unavailable"
+						}
+
+						_ = emit(ctx, events, event)
+					}()
+
+					continue
 				case "forward":
 					value.chat = req.to.key
 
@@ -511,12 +598,13 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 					value.text = req.to.title
 				case "download":
 					value.text, err = downloadAttachment(ctx, client, req)
+					value.playVoice = req.attachment.kind == "Voice"
 				case "reactionImage":
-					value.text, err = downloadReactionImage(ctx, client, req.reactionDocument)
+					value.text, err = downloadReactionImage(ctx, client, accountID, req.reactionDocument)
 				case "inlineImage":
 					go func(req request, value serverEvent) {
 						value.text = req.text
-						value.inlineImage = fetchInlineImage(ctx, client, req)
+						value.inlineImage = fetchInlineImage(ctx, client, accountID, req)
 						_ = emit(ctx, events, value)
 					}(req, value)
 

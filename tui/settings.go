@@ -7,6 +7,19 @@ import (
 	"path/filepath"
 )
 
+// AvatarSettings controls profile photos in the message header.
+type AvatarSettings struct {
+	HideAvatars bool `json:"hide_avatars,omitempty"`
+}
+
+func (s AvatarSettings) AvatarMode() string {
+	if s.HideAvatars {
+		return "Off"
+	}
+
+	return "On"
+}
+
 func settingsPath(app string) (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {

@@ -4,17 +4,17 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/danilrwx/telega/tui"
 )
 
 const historyWindow = 2 * historyLimit
 
 func (a *app) visibleChats() []int {
-	needle := strings.ToLower(a.chatQuery)
-
 	var indexes []int
 
 	for i, chat := range a.chats {
-		if a.chatMatches(chat, needle) {
+		if a.open && i == a.selected || a.chatMatches(chat) {
 			indexes = append(indexes, i)
 		}
 	}
@@ -22,12 +22,12 @@ func (a *app) visibleChats() []int {
 	return indexes
 }
 
-func (a *app) chatMatches(c chat, needle string) bool {
-	return (!a.unreadOnly || c.unread.any()) && (needle == "" || strings.Contains(strings.ToLower(c.title), needle))
+func (a *app) chatMatches(c chat) bool {
+	return (!a.unreadOnly || c.unread.any()) && tui.ChatMatches(c.title, c.username, a.chatQuery)
 }
 
 func (a *app) keepUnreadSelection() {
-	if !a.unreadOnly || a.open || len(a.chats) == 0 || a.chatMatches(a.chats[a.selected], strings.ToLower(a.chatQuery)) {
+	if !a.unreadOnly || a.open || len(a.chats) == 0 || a.chatMatches(a.chats[a.selected]) {
 		return
 	}
 
@@ -52,7 +52,7 @@ func (a *app) moveChat(step int) {
 func (a *app) searchInput(k key, out chan<- request) bool {
 	switch k.name {
 	case "escape":
-		a.searching, a.historySearch = false, false
+		a.searching = false
 		if !a.open {
 			a.chatQuery = ""
 		}
@@ -60,17 +60,6 @@ func (a *app) searchInput(k key, out chan<- request) bool {
 		return true
 	case "enter":
 		a.searching = false
-		if a.historySearch {
-			a.historySearch = false
-
-			query := strings.TrimSpace(string(a.search))
-			if query != "" && a.pending == "" {
-				a.serverQuery, a.serverPrevious, a.serverAnchor = query, nil, 0
-				a.ask(out, request{kind: "searchHistory", chat: a.currentChat(), text: query})
-			}
-
-			return true
-		}
 
 		if a.open {
 			a.messageQuery = string(a.search)

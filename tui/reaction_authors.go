@@ -13,7 +13,7 @@ type ReactionAuthors struct {
 
 func (a *ReactionAuthors) Key(name string) (close bool) {
 	switch name {
-	case "escape", "esc", "h", "left", "q":
+	case "escape", "esc", "h", "left", "q", "Z":
 		return true
 	case "up", "k":
 		a.Selected = max(0, a.Selected-1)

@@ -133,6 +133,34 @@ func (a *app) input(k key, out chan<- request) bool {
 		return false
 	}
 
+	if a.playback != nil {
+		switch k.name {
+		case "alt+p":
+			a.toggleVoicePause()
+			return true
+		case "alt+shift+p":
+			a.stopVoicePlayback()
+			return true
+		}
+	}
+
+	if a.transcript != nil {
+		a.voiceTranscriptInput(commandKey(k), out)
+		return true
+	}
+
+	if a.voice != nil {
+		switch k.name {
+		case "enter", "alt+v":
+			a.voice.stop()
+		case "escape":
+			a.voice.discard = true
+			a.voice.cancel()
+		}
+
+		return true
+	}
+
 	if a.imagePreview != nil {
 		k = commandKey(k)
 		switch {
@@ -190,13 +218,28 @@ func (a *app) input(k key, out chan<- request) bool {
 		return true
 	}
 
+	if a.chatPicker {
+		a.chatPickerInput(k, out)
+		return true
+	}
+
 	if a.forwardIDs != nil {
 		a.forwardInput(k, out)
 		return true
 	}
 
-	if a.serverResults != nil {
-		a.serverSearchInput(commandKey(k), out)
+	if a.attachmentGallery != nil {
+		if len(a.linkChoices) != 0 {
+			a.linkInput(commandKey(k))
+		} else {
+			a.attachmentGalleryInput(commandKey(k), out)
+		}
+
+		return true
+	}
+
+	if a.messageSearch != nil {
+		a.messageSearchInput(k, out)
 		return true
 	}
 
@@ -225,6 +268,29 @@ func (a *app) input(k key, out chan<- request) bool {
 		return true
 	}
 
+	if a.settingsOpen {
+		k = commandKey(k)
+		switch {
+		case k.name == "escape" || k.name == "alt+s" || k.text == "q":
+			a.settingsOpen = false
+		case k.name == "up" || k.text == "k":
+			a.settingsCursor = max(0, a.settingsCursor-1)
+		case k.name == "down" || k.text == "j":
+			a.settingsCursor = min(displaySettingsCount-1, a.settingsCursor+1)
+		case k.name == "enter" || k.text == " ":
+			a.toggleDisplaySetting()
+		}
+
+		return true
+	}
+
+	if k.name == "alt+s" && !a.composing && !a.searching {
+		a.settingsOpen = true
+		a.status = ""
+
+		return true
+	}
+
 	if k.name == "nextChat" || k.name == "previousChat" {
 		step := 1
 		if k.name == "previousChat" {
@@ -249,11 +315,30 @@ func (a *app) input(k key, out chan<- request) bool {
 
 	if a.open && a.pending == "" && !a.searching && a.editID == 0 && !a.demo {
 		switch k.name {
+		case "alt+r":
+			if !a.composing && len(a.log) != 0 {
+				a.beginVoiceTranscript(out, a.currentChat(), a.log[a.offset])
+			}
+
+			return true
 		case "alt+a":
 			a.beginAttachment(false)
 			return true
 		case "alt+t", "textAttachment":
 			a.textAttachmentPrompt = &tui.TextAttachmentPrompt{}
+			return true
+		case "alt+v":
+			if !a.composing {
+				a.composing = true
+				a.restoreDraft()
+			}
+
+			if a.editID == 0 {
+				a.voiceRequested = true
+			} else {
+				a.status = "Finish editing before recording a voice message"
+			}
+
 			return true
 		}
 	}
@@ -315,8 +400,18 @@ func (a *app) input(k key, out chan<- request) bool {
 		return true
 	}
 
-	if k.name == "" && (k.text == "/" || k.text == "?" && a.open && !a.demo && a.pending == "") {
-		a.searching, a.search, a.prefixG, a.historySearch = true, nil, false, k.text == "?"
+	if k.name == "chatPicker" || !a.open && k.name == "" && k.text == "/" {
+		a.beginChatPicker(out)
+		return true
+	}
+
+	if k.name == "messageSearch" || k.name == "" && k.text == "?" {
+		a.beginMessageSearch(k.name == "messageSearch" || !a.open)
+		return true
+	}
+
+	if k.name == "" && k.text == "/" {
+		a.searching, a.search, a.prefixG = true, nil, false
 		return true
 	}
 
@@ -457,7 +552,7 @@ func (a *app) input(k key, out chan<- request) bool {
 					a.revealID = id
 				}
 			case "V":
-				a.showChatAttachments()
+				a.beginAttachmentGallery(out)
 			}
 		}
 

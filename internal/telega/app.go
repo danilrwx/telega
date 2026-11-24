@@ -15,6 +15,9 @@ type app struct {
 	inlineImages                                   *tui.InlineImages
 	inlineLoading                                  bool
 	layoutSettings                                 tui.LayoutSettings
+	display                                        displaySettings
+	settingsOpen                                   bool
+	settingsCursor                                 int
 	textReactions, console                         bool
 	pending, prompt, status, qr                    string
 	draft                                          []rune
@@ -52,6 +55,10 @@ type app struct {
 	reactionCatalog                                []reactionChoice
 	search                                         []rune
 	chatQuery, messageQuery                        string
+	chatPicker, chatDirectoryStarted               bool
+	chatDirectoryLoading                           bool
+	chatPickerIndex                                int
+	chatDirectory                                  []chat
 	unreadOnly                                     bool
 	selection                                      map[int]struct{}
 	confirmDelete                                  []int
@@ -62,6 +69,7 @@ type app struct {
 	attachmentTitle                                string
 	attachmentIndex                                int
 	openTarget                                     string
+	playTarget                                     string
 	openExternal                                   string
 	previewOnly                                    bool
 	imagePreview                                   *tui.TerminalImage
@@ -88,10 +96,12 @@ type app struct {
 	forwardIDs                                     []int
 	forwardIndex                                   int
 	forwardQuery                                   string
+	directorySearch                                directorySearch
 	forwardConfirm                                 bool
 	forwardTo                                      chat
 	copyText                                       string
 	authors                                        map[peerKey]string
+	authorAvatars                                  map[peerKey]*attachment
 	authorLookup                                   bool
 	autoReadPending                                bool
 	autoReadVisible                                func() bool
@@ -103,12 +113,16 @@ type app struct {
 	prefetching                                    bool
 	jumps                                          []chatPosition
 	jumpOrigin                                     chatPosition
-	historySearch                                  bool
-	serverResults                                  []message
-	serverQuery                                    string
-	serverIndex, serverAnchor                      int
-	serverEnd                                      bool
-	serverPrevious                                 []int
+	messageSearch                                  *tui.MessageSearch
+	messageSearchScope                             chat
+	messageSearchHits                              []messageHit
+	messageSearchCursor                            messageSearchCursor
+	attachmentGallery                              *attachmentGallery
+	voiceRequested                                 bool
+	voice                                          *voiceRecording
+	playback                                       *voicePlayback
+	transcript                                     *voiceTranscript
+	voiceTranscripts                               map[chatPosition]*voiceTranscript
 }
 
 func (a *app) ask(out chan<- request, req request) {
@@ -150,9 +164,16 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 	case "qr":
 		a.qr, a.pending, a.prompt, a.status = e.text, "", "", ""
 	case "ready":
+		a.chatDirectory, a.chatDirectoryStarted, a.chatDirectoryLoading = nil, false, false
 		a.ready, a.prompt, a.qr, a.disconnected = true, "", "", false
 		a.dialogsLoaded = false
+
+		if a.accountID != e.accountID {
+			a.authorAvatars = nil
+		}
+
 		a.accountID = e.accountID
+		a.rememberAvatar(peerKey{'u', e.accountID}, e.avatar)
 		a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder, cursor: a.dialogPage.cursor}})
 	case "chats":
 		a.receiveDialogs(out, e)
@@ -189,6 +210,7 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 	case "author":
 		a.authorLookup = false
 		a.rememberAuthor(e.author, e.text)
+		a.rememberAvatar(e.author, e.avatar)
 	case "prefetch":
 		a.prefetching = false
 		if e.text == "" && a.inConversation(e) &&
@@ -197,8 +219,15 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 		}
 	case "jump", "unread", "jumpBack":
 		a.receiveJump(e)
-	case "searchHistory":
-		a.receiveSearch(e)
+	case "messageSearch":
+		a.receiveMessageSearch(e)
+	case "chatDirectory", "directorySearch":
+		a.receiveChatDirectory(e)
+	case "chatDirectoryDone":
+		a.chatDirectoryLoading = false
+		if e.hint != "" {
+			a.chatDirectoryStarted = false
+		}
 	case "forward":
 		a.pending = ""
 		for _, id := range e.ids {
@@ -362,6 +391,10 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 				a.newerTrimmed = true
 			}
 		}
+	case "presence":
+		if i := slices.IndexFunc(a.chats, func(c chat) bool { return c.key == e.chat }); i >= 0 {
+			a.chats[i].presence = e.presence
+		}
 	case "readOutbox":
 		if e.threadID != 0 {
 			if a.inConversation(e) && a.thread != nil {
@@ -428,10 +461,16 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 			a.inlineImages.Store(e.text, e.inlineImage)
 		}
 	case "download", "reactionImage":
-		a.pending = ""
-		a.status = ""
-		a.openTarget = e.text
-		a.previewOnly = e.kind == "reactionImage"
+		a.pending, a.status = "", ""
+
+		if e.playVoice {
+			a.playTarget = e.text
+		} else {
+			a.openTarget = e.text
+			a.previewOnly = e.kind == "reactionImage"
+		}
+	case "voiceTranscript":
+		a.receiveVoiceTranscript(e)
 	case "deletedMessages":
 		if a.open && a.currentChat().key == e.chat {
 			a.removeMessages(e.ids)
@@ -466,6 +505,8 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 
 		a.status, a.pending = e.text, ""
 		if e.kind == "offline" {
+			clear(a.voiceTranscripts)
+
 			if a.open {
 				a.resumeChat = a.chats[a.selected].key
 				a.resumeThread, a.resumeReturnID = a.thread, a.threadReturnID
@@ -486,6 +527,10 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 func (a *app) replaceLoadedMessage(i int, msg message) {
 	if msg.authorName == "" && msg.author == a.log[i].author {
 		msg.authorName, msg.authorDirectoryName = a.log[i].authorName, a.log[i].authorDirectoryName
+	}
+
+	if msg.avatar == nil && msg.avatarPeer == a.log[i].avatarPeer {
+		msg.avatar = a.log[i].avatar
 	}
 
 	if !msg.hasReactions {

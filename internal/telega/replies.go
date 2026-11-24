@@ -203,6 +203,24 @@ func (a *app) messageLines(msg message, width, limit int) []string {
 
 	lines := append(headers, formattedMessage(msg, width, limit-len(headers), a.revealID == msg.id, a.palette())...)
 
+	room := min(4, limit-len(lines))
+	if msg.attachment != nil && msg.attachment.kind == "Voice" && room > 0 && width > 2 && len(a.voiceTranscripts) != 0 {
+		if transcript := a.voiceTranscripts[chatPosition{chat: a.currentChat().key, id: msg.id}]; transcript != nil && !transcript.pending {
+			if transcriptText := strings.TrimSpace(transcript.text); transcriptText != "" {
+				preview := tui.Wrap(transcriptText, width-2, room+1)
+				if len(preview) > room {
+					preview = preview[:room]
+					preview[room-1] = tui.Clip(preview[room-1]+"…", width-2)
+				}
+
+				lines = append(lines, "↳ "+preview[0])
+				for _, line := range preview[1:] {
+					lines = append(lines, "  "+line)
+				}
+			}
+		}
+	}
+
 	lines = append(lines, thumbnail...)
 	if showReactions {
 		lines = append(lines, a.palette().reaction+a.inlineReactionLine(msg, width)+"\x1b[0m")

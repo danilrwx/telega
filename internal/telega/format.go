@@ -1,6 +1,7 @@
 package telega
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf16"
@@ -250,6 +251,11 @@ func formattedMessage(msg message, width, limit int, reveal bool, colors *termin
 		}
 
 		label := "[" + kind + "] " + msg.attachment.name
+		if kind == "Voice" && msg.attachment.duration > 0 {
+			seconds := msg.attachment.duration
+			label = fmt.Sprintf("[Voice] %d:%02d", seconds/60, seconds%60)
+		}
+
 		if kind == "Video" {
 			details := msg.attachment.videoDetails()
 			if details != "" {

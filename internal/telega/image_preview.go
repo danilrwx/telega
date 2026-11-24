@@ -3,6 +3,7 @@ package telega
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/danilrwx/telega/tui"
@@ -26,24 +27,24 @@ func (a *app) previewReaction(choice reactionChoice, out chan<- request) {
 	}
 }
 
-func downloadReactionImage(ctx context.Context, client *telegram.Client, id int64) (string, error) {
-	documents, err := client.API().MessagesGetCustomEmojiDocuments(ctx, []int64{id})
-	if err != nil {
-		return "", err
-	}
-
-	for _, document := range documents {
-		doc, ok := document.(*tg.Document)
-		if !ok || doc.ID != id {
-			continue
-		}
-
-		file, err := reactionImageFile(doc)
+func downloadReactionImage(ctx context.Context, client *telegram.Client, accountID, id int64) (string, error) {
+	return cacheAttachment(fmt.Sprintf("reaction-%d-%d", accountID, id), "reaction.webp", 0, func(out io.Writer) error {
+		documents, err := client.API().MessagesGetCustomEmojiDocuments(ctx, []int64{id})
 		if err != nil {
-			return "", err
+			return err
 		}
 
-		return file.cacheDownload(func(out io.Writer) error {
+		for _, document := range documents {
+			doc, ok := document.(*tg.Document)
+			if !ok || doc.ID != id {
+				continue
+			}
+
+			file, err := reactionImageFile(doc)
+			if err != nil {
+				return err
+			}
+
 			if len(file.inlineData) > 0 {
 				_, err := out.Write(file.inlineData)
 				return err
@@ -59,13 +60,22 @@ func downloadReactionImage(ctx context.Context, client *telegram.Client, id int6
 				builder.WithSize(file.size)
 			}
 
-			_, err = builder.Stream(ctx, out)
+			var data imageBuffer
+			if _, err := builder.Stream(ctx, &data); err != nil {
+				return err
+			}
+
+			if file.size > 0 && int64(data.Len()) != file.size {
+				return errors.New("incomplete custom reaction image")
+			}
+
+			_, err = data.WriteTo(out)
 
 			return err
-		})
-	}
+		}
 
-	return "", errors.New("custom reaction missing from Telegram response")
+		return errors.New("custom reaction missing from Telegram response")
+	})
 }
 
 func reactionImageFile(doc *tg.Document) (*attachment, error) {

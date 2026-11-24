@@ -28,6 +28,7 @@ type uploadAttachment struct {
 	temporary, managed bool
 	changed            bool
 	original           os.FileInfo
+	voiceSeconds       int
 }
 
 func openRegularFile(path string) (*os.File, error) {
@@ -211,7 +212,7 @@ func sendAttachment(ctx context.Context, api *tg.Client, req request, caption st
 		return nil, errors.New("attachment changed after selection")
 	}
 
-	document := req.asFile || upload.format == "" || upload.format == "gif"
+	document := upload.voiceSeconds > 0 || req.asFile || upload.format == "" || upload.format == "gif"
 
 	var (
 		f   *os.File
@@ -253,7 +254,12 @@ func sendAttachment(ctx context.Context, api *tg.Client, req request, caption st
 
 	var media tg.InputMediaClass = &tg.InputMediaUploadedPhoto{File: file}
 
-	if document {
+	if upload.voiceSeconds > 0 {
+		media = &tg.InputMediaUploadedDocument{
+			File: file, MimeType: "audio/ogg",
+			Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeAudio{Voice: true, Duration: upload.voiceSeconds}},
+		}
+	} else if document {
 		name := filepath.Base(upload.path)
 		if upload.temporary {
 			name = "Screenshot.png"

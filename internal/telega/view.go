@@ -28,9 +28,7 @@ func shortSender(title string, width int) string {
 		return "Peer"
 	}
 
-	name := names[0]
-
-	return tui.Clip(name, width)
+	return tui.Clip(names[0], width)
 }
 
 const minTerminalCols, minTerminalRows = 24, 7
@@ -51,13 +49,28 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if cols < minTerminalCols || rows < minTerminalRows {
+		if a.attachmentGallery != nil {
+			a.attachmentGallery.columns = 0
+		}
+
 		_, err := io.WriteString(w, b.String()+"\x1b[HResize your terminal")
+
 		return err
 	}
 
 	label := func(x, y, width int, value string) {
 		fmt.Fprintf(&b, "\x1b[%d;%dH%s", y, x, tui.Wrap(value, width, 1)[0])
 	}
+
+	if a.attachmentGallery != nil {
+		a.paintAttachmentGallery(&b, label, cols, rows)
+		paintDialogPopup(&b, a.dialogPopup(cols, rows))
+
+		_, err := io.WriteString(w, b.String())
+
+		return err
+	}
+
 	if len(a.topicEntries) > 0 {
 		label(2, 1, cols-2, a.currentChat().title+" · Topics")
 		label(2, rows, cols-2, "jk choose  Enter open  [/] pages  Esc back")
@@ -83,69 +96,6 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		return err
 	}
 
-	if a.forwardIDs != nil {
-		if a.forwardConfirm {
-			label(2, 1, cols-2, fmt.Sprintf("Forward %d message(s)?", len(a.forwardIDs)))
-			label(2, rows, cols-2, "y send  Esc change recipient")
-
-			for i, line := range tui.Wrap("To: "+a.forwardTo.title, cols-2, rows-2) {
-				label(2, i+2, cols-2, line)
-			}
-		} else {
-			label(2, 1, cols-2, fmt.Sprintf("Forward %d message(s). Type a chat name", len(a.forwardIDs)))
-			label(2, rows, cols-2, "↑↓ choose  Enter select  Esc cancel")
-			label(2, 2, cols-2, "/ "+a.forwardQuery)
-			indexes := a.forwardChats()
-
-			start := max(0, a.forwardIndex-rows+4)
-			for row, i := range indexes[start:min(len(indexes), start+rows-3)] {
-				if start+row == a.forwardIndex {
-					label(2, row+3, 1, "›")
-				}
-
-				label(4, row+3, cols-4, a.chats[i].title)
-			}
-
-			if len(indexes) == 0 {
-				label(2, 3, cols-2, "No matching chats")
-			}
-		}
-
-		_, err := io.WriteString(w, b.String())
-
-		return err
-	}
-
-	if a.serverResults != nil {
-		label(2, 1, cols-2, "Search history / "+a.serverQuery)
-		label(2, rows, cols-2, "jk choose  Enter jump  n/N pages  Esc close")
-
-		start := max(0, a.serverIndex-rows+4)
-		for row, msg := range a.serverResults[start:min(len(a.serverResults), start+rows-3)] {
-			if start+row == a.serverIndex {
-				label(2, row+2, 1, "›")
-			}
-
-			label(4, row+2, cols-4, searchResultLabel(msg))
-		}
-
-		status := a.status
-		if a.pending == "searchHistory" {
-			status = "Searching…"
-		} else if status == "" {
-			status = fmt.Sprintf("%d/%d on this page", a.serverIndex+1, len(a.serverResults))
-			if !a.serverEnd {
-				status += " · n for more"
-			}
-		}
-
-		label(2, rows-1, cols-2, status)
-
-		_, err := io.WriteString(w, b.String())
-
-		return err
-	}
-
 	keys := "Esc quit"
 
 	if a.disconnected {
@@ -160,14 +110,28 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if a.open {
-		keys = "jk move  Ctrl+N/P chats  i write  a attach  z react  Z authors  r reply  V attachments  ? search"
+		keys = "jk move  Ctrl+N/P chats  i write  a attach  z react  Z authors  r reply  V gallery  ? messages"
 		if a.thread != nil {
-			keys = "jk move  h back  i write  a attach  z react  Z authors  r reply  V attachments  ? search"
+			keys = "jk move  h back  i write  a attach  z react  Z authors  r reply  V gallery  ? messages"
+		} else if a.display.HideChatListWhenOpen {
+			keys = "h chats  " + keys
+		}
+
+		if !a.demo && !a.composing {
+			keys = "Alt+V voice  " + keys
+
+			if len(a.log) > 0 && a.log[a.offset].attachment != nil && a.log[a.offset].attachment.kind == "Voice" {
+				keys = "o play  Alt+R transcript  " + keys
+			}
 		}
 
 		if a.pending == "" && len(a.log) > 0 && a.log[a.offset].editable() {
 			keys = "e edit  " + keys
 		}
+	}
+
+	if a.ready && !a.open {
+		keys += "  Alt+S settings"
 	}
 
 	if a.searching {
@@ -181,13 +145,13 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	retryingSend := a.composing && a.retrySend != nil
 
 	if a.composing {
-		keys = "Enter send  Ctrl+X Vim  Ctrl+J newline  Esc keep draft"
+		keys = "Enter send  Ctrl+X editor  Ctrl+J newline  Esc keep draft"
 		if a.editID != 0 {
-			keys = "Enter save edit  Ctrl+X Vim  Ctrl+J newline  Esc keep draft"
+			keys = "Enter save edit  Ctrl+X editor  Ctrl+J newline  Esc keep draft"
 		} else if a.staged == nil && !a.demo {
-			keys = "Enter send  Ctrl+X Vim  Ctrl+J newline  Ctrl+V image  Esc keep draft"
+			keys = "Enter send  Ctrl+X editor  Ctrl+J newline  Ctrl+V image  Esc keep draft"
 		} else if a.staged != nil && a.staged.format != "" && a.staged.format != "gif" {
-			keys = "Enter send  Ctrl+X Vim  Ctrl+B photo/file  Ctrl+J newline  Esc keep draft"
+			keys = "Enter send  Ctrl+X editor  Ctrl+B photo/file  Ctrl+J newline  Esc keep draft"
 		}
 
 		if retryingSend {
@@ -195,7 +159,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		}
 
 		if a.editID == 0 {
-			keys = strings.Replace(keys, "Ctrl+X Vim", "Alt+A attach  Alt+T text file  Ctrl+O draft files  Ctrl+X Vim", 1)
+			keys = strings.Replace(keys, "Ctrl+X editor", "Alt+V voice  Alt+A attach  Alt+T text file  Ctrl+O draft files  Ctrl+X editor", 1)
 		}
 	}
 
@@ -239,64 +203,12 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		keys = "Waiting for Telegram…  Ctrl+C quit"
 	}
 
-	deletePrompt := ""
-	if len(a.confirmDelete) > 0 {
-		deletePrompt, keys = tui.DeleteConfirmation(len(a.confirmDelete), a.deleteForEveryone).Footer(cols - 2)
+	if a.voice != nil {
+		keys = "Enter stop and keep  Esc discard"
 	}
 
 	colors := a.palette()
-	dialogTitle, dialogHint, dialogStatus := "", "", ""
-	dialogIndex := 0
-
-	var choices []string
-
-	if dialog := a.reactionAuthors; dialog != nil {
-		dialogTitle, dialogHint = tui.ReactionAuthorsTitle, tui.ReactionAuthorsHint
-		choices, dialogIndex, dialogStatus = dialog.Rows, dialog.Selected, dialog.Status
-	} else if a.attachmentTitle != "" {
-		dialogTitle, dialogHint, dialogIndex, dialogStatus = a.attachmentTitle, tui.OpenAttachmentHint, a.attachmentIndex, a.status
-		if dialogTitle == tui.DraftAttachmentsTitle {
-			dialogHint = tui.DraftAttachmentListHint(len(a.attachmentChoices))
-		} else if a.pending == "download" {
-			dialogStatus = "Opening…"
-		}
-
-		choices = make([]string, len(a.attachmentChoices))
-		for i, item := range a.attachmentChoices {
-			choices[i] = item.label
-		}
-	}
-
-	if a.textAttachmentPrompt != nil || a.filePicker != nil || dialogTitle != "" {
-		row := 1
-
-		render := func(text string, title, selected, hint bool) {
-			switch {
-			case title:
-				b.WriteString(colors.heading)
-			case selected:
-				b.WriteString(colors.selected)
-			case hint:
-				b.WriteString(colors.muted)
-			}
-
-			label(3, row, cols-4, text)
-			b.WriteString("\x1b[0m")
-
-			row++
-		}
-		if a.textAttachmentPrompt != nil {
-			a.textAttachmentPrompt.Render(cols-4, render)
-		} else if a.filePicker != nil {
-			a.filePicker.Render(cols-4, rows, render)
-		} else {
-			tui.ListDialog(dialogTitle, choices, dialogIndex, cols-4, rows, dialogStatus, dialogHint, render)
-		}
-
-		_, err := io.WriteString(w, b.String())
-
-		return err
-	}
+	popup := a.dialogPopup(cols, rows)
 
 	b.WriteString(colors.muted)
 	label(2, rows, cols-2, keys)
@@ -306,7 +218,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	historyBottom := statusRow
 
 	sidebarWidth := 0
-	if a.open {
+	if a.open && !a.display.HideChatListWhenOpen {
 		sidebarWidth = tui.SidebarWidth(cols, a.layoutSettings.SidebarWidth)
 	}
 
@@ -351,9 +263,6 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		draft := strings.ReplaceAll(saved.text, "\t", "    ")
 
 		height := max(1, min(tui.ComposerLineLimit(rows), rows-6)-attachmentRows)
-		if a.reactionPickerOpen {
-			height = 1
-		}
 
 		if a.composing {
 			draftLines = tui.Wrap(draft, draftWidth, 0)
@@ -376,13 +285,6 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		statusRow = rows - 1
 		if reactionSuggestion != "" {
 			statusRow--
-		}
-
-		if a.reactionPickerOpen {
-			statusRow -= min(5, rows-6)
-			if attachmentRows > 0 {
-				statusRow++
-			}
 		}
 
 		draftTop = statusRow - len(draftLines)
@@ -499,32 +401,6 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	status := a.status
-	if len(a.linkChoices) > 0 {
-		b.WriteString("\x1b[2J")
-		label(2, 1, cols-2, "Open link")
-		label(2, rows, cols-2, keys)
-
-		start := max(0, a.linkIndex-rows+4)
-		for i, link := range a.linkChoices[start:min(len(a.linkChoices), start+rows-3)] {
-			prefix := "  "
-			if start+i == a.linkIndex {
-				prefix = "› "
-			}
-
-			caption := link.label
-			if caption == "" {
-				caption = link.url
-			}
-
-			label(2, i+2, cols-2, prefix+caption)
-		}
-
-		label(2, rows-1, cols-2, a.linkChoices[a.linkIndex].url)
-
-		_, err := io.WriteString(w, b.String())
-
-		return err
-	}
 
 	if reactionPrompt != "" {
 		status = reactionPrompt
@@ -535,10 +411,6 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		a.noticeStatusVisible = true
 	}
 
-	if deletePrompt != "" {
-		status = deletePrompt
-	}
-
 	if a.composing && a.replyID != 0 {
 		reply := "Replying to: " + a.replyPreview
 		if status == "" {
@@ -546,10 +418,21 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		}
 	}
 
+	if a.voice != nil {
+		status = "Recording voice…"
+		if a.voice.discard || a.voice.stopping {
+			status = "Finishing voice recording…"
+		}
+	}
+
 	if status == "" {
+		if a.playback != nil {
+			status = a.playback.hint()
+		}
+
 		switch a.pending {
 		case "":
-			if a.open && !a.composing && !a.searching {
+			if status == "" && a.open && !a.composing && !a.searching {
 				status = a.messageJumpHints()
 			}
 		case "connect", "reconnect":
@@ -558,8 +441,6 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			status = "Waiting for Telegram…"
 		case "chats", "archiveChat", "topics", "discussion", "threadParent", "history", "older", "newer", "latest", "jump", "jumpBack", "unread":
 			status = "Loading…"
-		case "searchHistory":
-			status = "Searching…"
 		case "send":
 			status = "Sending…"
 		case "download":
@@ -577,8 +458,6 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		for i, line := range tui.Wrap(status, cols-4, rows-5) {
 			label(2, i+4, cols-4, line)
 		}
-	} else if a.reactionPickerOpen {
-		a.paintReactionPicker(label, statusRow, rows, cols)
 	} else {
 		label(2, statusRow, cols-2, status)
 
@@ -590,9 +469,6 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	prompt, masked := "", false
 	if a.searching {
 		prompt = "/"
-		if a.historySearch {
-			prompt = "Search history"
-		}
 	} else if a.pending == "" {
 		prompt, masked = a.prompt, a.masked
 	}
@@ -657,7 +533,118 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		b.WriteString("\x1b[?25h")
 	}
 
+	paintDialogPopup(&b, popup)
+
 	_, err := io.WriteString(w, b.String())
 
 	return err
+}
+
+func paintDialogPopup(b *strings.Builder, popup tui.DialogPopup) {
+	if len(popup.Lines) != 0 {
+		frame := tui.WithoutInlineImages(b.String())
+		b.Reset()
+		b.WriteString(frame)
+		b.WriteString("\x1b[?25l")
+
+		for i, line := range popup.Lines {
+			fmt.Fprintf(b, "\x1b[%d;%dH%s", popup.Y+i+1, popup.X+1, line)
+		}
+	}
+}
+
+func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
+	if a.attachmentGallery != nil && len(a.linkChoices) == 0 && a.transcript == nil {
+		return tui.DialogPopup{}
+	}
+
+	if a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 {
+		return tui.DialogPopup{}
+	}
+
+	colors := a.palette()
+	dialogTitle, dialogHint, dialogStatus := "", "", ""
+	dialogIndex := 0
+
+	var choices []string
+
+	if a.settingsOpen {
+		dialogTitle, dialogHint, dialogStatus = "Settings", "jk choose  Enter change  Esc back", a.status
+		choices, dialogIndex = a.display.rows(), a.settingsCursor
+	} else if dialog := a.reactionAuthors; dialog != nil {
+		dialogTitle, dialogHint = tui.ReactionAuthorsTitle, tui.ReactionAuthorsHint
+		choices, dialogIndex, dialogStatus = dialog.Rows, dialog.Selected, dialog.Status
+	} else if a.attachmentTitle != "" {
+		dialogTitle, dialogHint, dialogIndex, dialogStatus = a.attachmentTitle, tui.OpenAttachmentHint, a.attachmentIndex, a.status
+		if dialogTitle == tui.DraftAttachmentsTitle {
+			dialogHint = tui.DraftAttachmentListHint(len(a.attachmentChoices))
+		} else if a.pending == "download" {
+			dialogStatus = "Opening…"
+		}
+
+		if dialogStatus == "" && a.playback != nil {
+			dialogStatus = a.playback.hint()
+		}
+
+		choices = make([]string, len(a.attachmentChoices))
+		for i, item := range a.attachmentChoices {
+			choices[i] = item.label
+		}
+	} else if len(a.linkChoices) > 0 {
+		dialogTitle, dialogHint, dialogIndex = "Open link", tui.OpenAttachmentHint, a.linkIndex
+
+		dialogStatus = a.linkChoices[a.linkIndex].url
+		for _, link := range a.linkChoices {
+			caption := link.label
+			if caption == "" {
+				caption = link.url
+			}
+
+			choices = append(choices, caption)
+		}
+	}
+
+	content := func(width, height int, row func(string, bool, bool, bool)) {
+		switch {
+		case a.transcript != nil:
+			a.transcript.render(width, height, row)
+		case a.messageSearch != nil && a.attachmentGallery == nil:
+			a.messageSearch.Render(width, height, row)
+		case a.chatPicker:
+			a.renderChatPicker(width, height, row)
+		case a.reactionPickerOpen:
+			a.renderEmojiCatalog(width, height, row)
+		case a.forwardIDs != nil:
+			a.renderForward(width, height, row)
+		case len(a.confirmDelete) > 0:
+			tui.DeleteConfirmation(len(a.confirmDelete), a.deleteForEveryone).Render(width, height, row)
+		case a.textAttachmentPrompt != nil:
+			a.textAttachmentPrompt.Render(width, row)
+		case a.filePicker != nil:
+			a.filePicker.Render(width, height, row)
+		default:
+			tui.ListDialog(dialogTitle, choices, dialogIndex, width, height, dialogStatus, dialogHint, row)
+		}
+	}
+	style := func(text string, role tui.PopupRole) string {
+		var prefix string
+
+		switch role {
+		case tui.PopupTitle:
+			prefix = colors.heading
+		case tui.PopupBorder, tui.PopupMuted:
+			prefix = colors.muted
+		case tui.PopupSelected:
+			return colors.selected + text + "\x1b[0m"
+		}
+
+		return "\x1b[0m" + prefix + text + "\x1b[0m"
+	}
+
+	maxWidth := tui.ListPopupWidth
+	if a.settingsOpen || a.textAttachmentPrompt != nil || len(a.confirmDelete) > 0 || a.forwardConfirm {
+		maxWidth = tui.FormPopupWidth
+	}
+
+	return tui.FloatingDialog(cols, rows, maxWidth, content, style)
 }

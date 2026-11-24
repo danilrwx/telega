@@ -1,7 +1,6 @@
 package telega
 
 import (
-	"fmt"
 	"slices"
 )
 
@@ -162,8 +161,8 @@ func (a *app) jumpToUnread(out chan<- request) {
 }
 
 func (a *app) prefetchHistory(out chan<- request) {
-	if !a.open || a.demo || a.composing || a.filePicker != nil || a.textAttachmentPrompt != nil || a.searching || a.serverResults != nil ||
-		len(a.topicEntries) > 0 || a.forwardIDs != nil || a.confirmDelete != nil || a.linkChoices != nil ||
+	if !a.open || a.demo || a.composing || a.filePicker != nil || a.textAttachmentPrompt != nil || a.searching || a.messageSearch != nil ||
+		len(a.topicEntries) > 0 || a.forwardIDs != nil || a.chatPicker || a.confirmDelete != nil || a.linkChoices != nil ||
 		a.pending != "" || a.prefetching || a.authorLookup || a.autoReadPending || a.olderEnd || a.historyRoom <= 0 || len(a.log) == 0 ||
 		len(a.log)+historyLimit-historyWindow > a.offset {
 		return
@@ -179,74 +178,4 @@ func (a *app) prefetchHistory(out chan<- request) {
 		a.prefetching, a.prefetchAnchor = true, anchor
 	default:
 	}
-}
-
-func (a *app) receiveSearch(e serverEvent) {
-	a.pending = ""
-	if !a.inConversation(e) || a.serverQuery == "" {
-		return
-	}
-
-	if len(e.log) == 0 {
-		if a.serverResults != nil {
-			a.serverEnd = true
-		} else {
-			a.status = "No matches in chat history"
-		}
-
-		return
-	}
-
-	if e.step > 0 {
-		if len(a.serverPrevious) == 32 {
-			a.serverPrevious = slices.Delete(a.serverPrevious, 0, 1)
-		}
-
-		a.serverPrevious = append(a.serverPrevious, a.serverAnchor)
-	} else if e.step < 0 {
-		a.serverPrevious = a.serverPrevious[:len(a.serverPrevious)-1]
-	}
-
-	a.serverResults, a.serverIndex, a.serverAnchor = e.log, 0, e.anchor
-	a.serverEnd = len(e.log) < historyLimit
-}
-
-func (a *app) serverSearchInput(k key, out chan<- request) {
-	if k.name == "escape" || k.name == "left" || k.name == "" && k.text == "h" {
-		a.serverResults, a.serverQuery = nil, ""
-		return
-	}
-
-	if a.pending != "" {
-		return
-	}
-
-	query := request{kind: "searchHistory", chat: a.currentChat(), text: a.serverQuery}
-	switch {
-	case k.name == "enter":
-		target := a.serverResults[a.serverIndex].id
-		a.serverResults, a.serverQuery = nil, ""
-		a.requestJump(out, "jump", chatPosition{chat: query.chat.key, id: target})
-	case k.name == "up" || k.name == "" && k.text == "k":
-		a.serverIndex = max(0, a.serverIndex-1)
-	case k.name == "down" || k.name == "" && k.text == "j":
-		a.serverIndex = min(len(a.serverResults)-1, a.serverIndex+1)
-	case k.name == "pagedown" || k.name == "" && k.text == "n":
-		if !a.serverEnd {
-			query.anchor = a.serverResults[len(a.serverResults)-1].id
-			query.step = 1
-			a.ask(out, query)
-		}
-	case k.name == "pageup" || k.name == "" && k.text == "N":
-		if len(a.serverPrevious) > 0 {
-			query.anchor = a.serverPrevious[len(a.serverPrevious)-1]
-			query.step = -1
-			a.ask(out, query)
-		}
-	}
-}
-
-func searchResultLabel(msg message) string {
-	text := messageExcerpt(msg, 0)
-	return fmt.Sprintf("%s  %s", msg.date.UTC().Format("02 Jan 15:04"), text)
 }

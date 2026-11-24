@@ -16,6 +16,7 @@ type attachmentChoice struct {
 	label, path string
 	messageID   int
 	file        *attachment
+	voice       bool
 }
 
 type stagedAttachment struct {
@@ -35,6 +36,10 @@ func (d chatDraft) attachmentLabel() string {
 	name := d.upload.name()
 	if len(d.moreUploads) > 0 {
 		return "Files: " + name + " + " + strconv.Itoa(len(d.moreUploads))
+	}
+
+	if d.upload.voiceSeconds > 0 {
+		return "Voice: " + name
 	}
 
 	if d.asFile || d.upload.format == "" || d.upload.format == "gif" {
@@ -144,7 +149,12 @@ func (a *app) showDraftAttachments() {
 	}
 
 	add := func(file *uploadAttachment) {
-		a.attachmentChoices = append(a.attachmentChoices, attachmentChoice{label: "File  " + file.name(), path: file.path})
+		kind := "File"
+		if file.voiceSeconds > 0 {
+			kind = "Voice"
+		}
+
+		a.attachmentChoices = append(a.attachmentChoices, attachmentChoice{label: kind + "  " + file.name(), path: file.path, voice: file.voiceSeconds > 0})
 	}
 	add(draft.upload)
 
@@ -188,6 +198,11 @@ func (a *app) attachmentChoiceInput(k key, out chan<- request) {
 		name = k.text
 	}
 
+	if name == "jumpBack" && a.attachmentTitle == tui.DraftAttachmentsTitle ||
+		name == "V" && a.attachmentTitle == tui.HistoryAttachmentsTitle {
+		name = "escape"
+	}
+
 	count := len(a.attachmentChoices)
 	action, index := tui.AttachmentListAction(name, a.attachmentIndex, count)
 	a.attachmentIndex = index
@@ -199,7 +214,12 @@ func (a *app) attachmentChoiceInput(k key, out chan<- request) {
 	case "open":
 		item := a.attachmentChoices[index]
 		if draft {
-			a.openTarget = item.path
+			if item.voice {
+				a.playTarget = item.path
+				a.status = ""
+			} else {
+				a.openTarget = item.path
+			}
 		} else if a.pending == "" {
 			a.ask(out, request{kind: "download", chat: a.currentChat(), anchor: item.messageID, attachment: item.file})
 		}
@@ -209,7 +229,11 @@ func (a *app) attachmentChoiceInput(k key, out chan<- request) {
 		}
 	case "edit":
 		if draft {
-			a.requestAttachmentEdit(index, "")
+			if a.attachmentChoices[index].voice {
+				a.status = "Use Enter to listen to this voice recording"
+			} else {
+				a.requestAttachmentEdit(index, "")
+			}
 		}
 	case "remove":
 		if draft {
@@ -282,7 +306,7 @@ func (a *app) editDraftAttachment(ctx context.Context, run func(*exec.Cmd) (erro
 		}
 	}()
 
-	cmd, err := tui.VimFileCommand(ctx, path)
+	cmd, err := tui.EditorFileCommand(ctx, path)
 	if err == nil {
 		var terminalErr error
 

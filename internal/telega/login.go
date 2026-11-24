@@ -42,15 +42,6 @@ func (l loginUI) prompt(ctx context.Context, label string, masked bool, hint str
 }
 
 func login(ctx context.Context, c *telegram.Client, ui loginUI, qrMode bool, loggedIn qrlogin.LoggedIn, cfg config) error {
-	status, err := c.Auth().Status(ctx)
-	if err != nil {
-		return err
-	}
-
-	if status.Authorized {
-		return nil
-	}
-
 	if qrMode {
 		q := qrlogin.NewQR(c.API(), cfg.APIID, cfg.APIHash, qrlogin.Options{
 			Migrate: c.MigrateTo,

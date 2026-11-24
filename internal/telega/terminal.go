@@ -96,6 +96,15 @@ func Run(opts Options) error {
 	inTmux := os.Getenv("TMUX") != ""
 
 	a := app{demo: demo, ready: demo, focused: true}
+	defer a.stopVoicePlayback()
+	defer func() {
+		if a.voice != nil {
+			a.voice.discard = true
+			a.voice.cancel()
+			a.finishVoiceRecording(<-a.voice.done)
+		}
+	}()
+
 	if inTmux && chatStatus != nil && !demo {
 		pane := os.Getenv("TMUX_PANE")
 		a.autoReadVisible = func() bool { return tmuxPaneVisible(ctx, pane) }
@@ -106,6 +115,10 @@ func Run(opts Options) error {
 	}
 
 	if !demo {
+		if err := tui.ReadSettings("telega", &a.display); err != nil {
+			a.status = "Settings: " + err.Error()
+		}
+
 		a.draftStore, err = tui.OpenDraftStore("telega")
 		if err != nil {
 			a.status = "Drafts: " + err.Error()
@@ -238,18 +251,47 @@ func Run(opts Options) error {
 		}
 
 		var (
-			historyReady <-chan time.Time
-			historyTimer *time.Timer
+			historyReady   <-chan time.Time
+			historyTimer   *time.Timer
+			directoryReady <-chan time.Time
+			directoryTimer *time.Timer
+			presenceTimer  *time.Timer
+			presenceReady  <-chan time.Time
+			voiceDone      <-chan error
+			playbackDone   <-chan error
 		)
+		if a.voice != nil {
+			voiceDone = a.voice.done
+		}
+
+		if a.playback != nil {
+			playbackDone = a.playback.done
+		}
+
 		if !a.historyDue.IsZero() {
 			historyTimer = time.NewTimer(time.Until(a.historyDue))
 			historyReady = historyTimer.C
+		}
+
+		if !a.directorySearch.due.IsZero() {
+			directoryTimer = time.NewTimer(time.Until(a.directorySearch.due))
+			directoryReady = directoryTimer.C
+		}
+
+		if remaining := a.presenceRemaining(); remaining > 0 {
+			presenceTimer = time.NewTimer(remaining)
+			presenceReady = presenceTimer.C
 		}
 
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-resize:
+		case err := <-voiceDone:
+			a.finishVoiceRecording(err)
+		case err := <-playbackDone:
+			a.finishVoicePlayback(err, false)
+		case <-presenceReady:
 		case <-chatStatusTick:
 		case dark, ok := <-themeChanges:
 			if ok {
@@ -259,6 +301,8 @@ func Run(opts Options) error {
 			}
 		case <-historyReady:
 			a.flushChatHistory(requests)
+		case <-directoryReady:
+			a.flushDirectorySearch(requests)
 		case notice := <-noticeFailures:
 			a.alertInTerminal(os.Stdout, notice)
 		case e := <-events:
@@ -275,6 +319,17 @@ func Run(opts Options) error {
 		case k, ok := <-keys:
 			if !ok || !a.input(k, requests) {
 				return nil
+			}
+
+			if a.voiceRequested {
+				a.voiceRequested = false
+				a.stopVoicePlayback()
+				a.voice, err = startVoiceRecording(ctx, cfg.scratch, []string{"-f", "pulse", "-i", "default"})
+				a.status = ""
+
+				if err != nil {
+					a.status = "Record voice: " + err.Error()
+				}
 			}
 
 			edited := a.vimRequested || a.editAttachmentRequested
@@ -307,7 +362,20 @@ func Run(opts Options) error {
 			historyTimer.Stop()
 		}
 
+		if directoryTimer != nil {
+			directoryTimer.Stop()
+		}
+
+		if presenceTimer != nil {
+			presenceTimer.Stop()
+		}
+
 		a.persistDraft()
+
+		if target := a.playTarget; target != "" {
+			a.playTarget = ""
+			a.playVoice(ctx, target)
+		}
 
 		if text := a.copyText; text != "" {
 			a.copyText = ""
@@ -388,7 +456,7 @@ func tmuxPaneVisible(ctx context.Context, pane string) bool {
 }
 
 func (a *app) editInVim(ctx context.Context, in int, state *term.State) error {
-	draft, err := tui.NewVimDraft(ctx, string(a.draft))
+	draft, err := tui.NewEditorDraft(ctx, string(a.draft))
 
 	var (
 		text        string
@@ -405,7 +473,7 @@ func (a *app) editInVim(ctx context.Context, in int, state *term.State) error {
 	case terminalErr != nil:
 		return terminalErr
 	case err != nil:
-		a.status = "Vim: " + err.Error()
+		a.status = "Editor: " + err.Error()
 	default:
 		text = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text)
 		a.draft = append(a.draft[:0], []rune(text)...)

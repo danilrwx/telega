@@ -94,3 +94,13 @@ func printable(glyph string, span int) (string, int) {
 
 	return glyph, span
 }
+
+// ChatMatches finds a display name or username. A leading @ searches usernames only.
+func ChatMatches(title, username, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if term, byUsername := strings.CutPrefix(query, "@"); byUsername {
+		return username != "" && strings.Contains(strings.ToLower(username), term)
+	}
+
+	return strings.Contains(strings.ToLower(title), query) || strings.Contains(strings.ToLower(username), query)
+}

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // ComposerLineLimit leaves the other half of the window available for messages.
@@ -12,19 +14,14 @@ func ComposerLineLimit(rows int) int {
 	return max(1, rows/2-1)
 }
 
-// VimDraft holds a temporary draft and its editor command.
-type VimDraft struct {
+// EditorDraft holds a temporary draft and its editor command.
+type EditorDraft struct {
 	Command *exec.Cmd
 	path    string
 }
 
-// NewVimDraft prepares a private Markdown file for interactive editing.
-func NewVimDraft(ctx context.Context, text string) (*VimDraft, error) {
-	vim, err := exec.LookPath("vim")
-	if err != nil {
-		return nil, err
-	}
-
+// NewEditorDraft prepares a private Markdown file for interactive editing.
+func NewEditorDraft(ctx context.Context, text string) (*EditorDraft, error) {
 	file, err := os.CreateTemp("", "chat-draft-*.md")
 	if err != nil {
 		return nil, err
@@ -38,26 +35,52 @@ func NewVimDraft(ctx context.Context, text string) (*VimDraft, error) {
 		return nil, err
 	}
 
-	return &VimDraft{Command: vimFileCommand(ctx, vim, file.Name()), path: file.Name()}, nil
-}
-
-// VimFileCommand opens a local file in Vim without swap, backup or history files.
-func VimFileCommand(ctx context.Context, path string) (*exec.Cmd, error) {
-	vim, err := exec.LookPath("vim")
+	cmd, err := EditorFileCommand(ctx, file.Name())
 	if err != nil {
+		_ = os.Remove(file.Name())
 		return nil, err
 	}
 
-	return vimFileCommand(ctx, vim, path), nil
+	return &EditorDraft{Command: cmd, path: file.Name()}, nil
 }
 
-func vimFileCommand(ctx context.Context, vim, path string) *exec.Cmd {
-	return exec.CommandContext(ctx, vim, "-n", "-i", "NONE", "--cmd", "set nomodeline",
-		"-c", "setlocal nofixendofline | set nobackup nowritebackup", "+", "--", path)
+// EditorFileCommand opens the path with VISUAL, EDITOR, or Vim in that order.
+func EditorFileCommand(ctx context.Context, path string) (*exec.Cmd, error) {
+	spec := strings.TrimSpace(os.Getenv("VISUAL"))
+	if spec == "" {
+		spec = strings.TrimSpace(os.Getenv("EDITOR"))
+	}
+
+	if spec == "" {
+		spec = "vim"
+	}
+
+	// An executable path can contain spaces. Otherwise split the configured options.
+	args := []string{spec}
+
+	executable, err := exec.LookPath(spec)
+	if err != nil {
+		args = strings.Fields(spec)
+
+		executable, err = exec.LookPath(args[0])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	options := args[1:]
+
+	switch filepath.Base(executable) {
+	case "vim", "nvim":
+		options = append(options, "-n", "-i", "NONE", "--cmd", "set nomodeline",
+			"-c", "setlocal nofixendofline | set nobackup nowritebackup", "+", "--")
+	}
+
+	return exec.CommandContext(ctx, executable, append(options, path)...), nil
 }
 
 // Finish reads the result on success and removes the temporary file.
-func (d *VimDraft) Finish(editorErr error) (string, error) {
+func (d *EditorDraft) Finish(editorErr error) (string, error) {
 	defer func() { _ = os.Remove(d.path) }()
 
 	if editorErr != nil {

@@ -32,6 +32,8 @@ func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key, keyDone
 		switch ch {
 		case 1:
 			k.name = "ctrl+a"
+		case 6:
+			k.name = "messageSearch"
 		case 5:
 			k.name = "ctrl+e"
 		case 2:
@@ -62,6 +64,8 @@ func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key, keyDone
 			k.name = "enter"
 		case 10:
 			k.name = "newline"
+		case 11:
+			k.name = "chatPicker"
 		case 8, 127:
 			k.name = "erase"
 		case 27:
@@ -107,6 +111,16 @@ func escapeKey(fd int, r *bufio.Reader) key {
 				return key{name: "alt+a"}
 			case 't':
 				return key{name: "alt+t"}
+			case 's':
+				return key{name: "alt+s"}
+			case 'v':
+				return key{name: "alt+v"}
+			case 'p':
+				return key{name: "alt+p"}
+			case 'P':
+				return key{name: "alt+shift+p"}
+			case 'r':
+				return key{name: "alt+r"}
 			}
 
 			_ = r.UnreadRune()
@@ -157,6 +171,8 @@ func escapeKey(fd int, r *bufio.Reader) key {
 			return key{name: "pageup"}
 		case "6~":
 			return key{name: "pagedown"}
+		case "Z":
+			return key{name: "shift+tab"}
 		case "F", "4~":
 			return key{name: "end"}
 		case "200~":

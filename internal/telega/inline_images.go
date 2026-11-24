@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/danilrwx/telega/tui"
@@ -56,6 +58,10 @@ func inlineAttachment(file *attachment) (string, *attachment) {
 		return "", nil
 	}
 
+	return inlineThumbnail(file)
+}
+
+func inlineThumbnail(file *attachment) (string, *attachment) {
 	if file.thumbnail != nil {
 		file = file.thumbnail
 	}
@@ -74,15 +80,113 @@ func inlineAttachment(file *attachment) (string, *attachment) {
 	}
 }
 
+func inlineAvatarKey(file *attachment) string {
+	if file == nil {
+		return ""
+	}
+
+	photo, ok := file.location.(*tg.InputPeerPhotoFileLocation)
+	if !ok {
+		return ""
+	}
+
+	return fmt.Sprintf("avatar:%d", photo.PhotoID)
+}
+
 func inlineReactionKey(id int64) string { return fmt.Sprintf("emoji:%d", id) }
 
+func (a *app) avatarAuthor(msg message) peerKey {
+	if msg.service {
+		return peerKey{}
+	}
+
+	if msg.avatarPeer.id != 0 {
+		return msg.avatarPeer
+	}
+
+	if msg.out {
+		return peerKey{'u', a.accountID}
+	}
+
+	return msg.author
+}
+
+func (a *app) rememberAvatar(author peerKey, avatar *attachment) {
+	if author.id == 0 || avatar == nil {
+		return
+	}
+
+	if a.authorAvatars == nil || len(a.authorAvatars) >= 512 {
+		own := peerKey{'u', a.accountID}
+		self := a.authorAvatars[own]
+		a.authorAvatars = make(map[peerKey]*attachment)
+
+		if self != nil {
+			a.authorAvatars[own] = self
+		}
+	}
+
+	a.authorAvatars[author] = avatar
+}
+
+func (a *app) avatarFile(msg message, current chat) *attachment {
+	author := a.avatarAuthor(msg)
+	if avatar := a.authorAvatars[author]; avatar != nil {
+		return avatar
+	}
+
+	if msg.avatar == nil && !msg.out && current.key.kind == 'u' && (author.id == 0 || current.key == author) {
+		return current.avatar
+	}
+
+	return msg.avatar
+}
+
+func (a *app) showMessageAvatars(c chat) bool {
+	return !a.display.HideAvatars && (c.key.kind != 'u' || a.display.showDMMessageAvatars())
+}
+
+func (a *app) directAvatarFile(c chat) *attachment {
+	if c.key.kind != 'u' || c.key.id == a.accountID || a.display.HideAvatars || a.display.HideDMHeaderAvatar {
+		return nil
+	}
+
+	if avatar := a.authorAvatars[c.key]; avatar != nil {
+		return avatar
+	}
+
+	return c.avatar
+}
+
 func (a *app) loadVisibleImages(out chan<- request) {
-	if a.inlineImages == nil || a.inlineLoading || !a.open || a.visibleMessages == 0 || a.pending != "" || len(out) == cap(out) {
+	if a.inlineImages == nil || a.inlineLoading || !a.open || a.pending != "" || a.transcript != nil || len(out) == cap(out) {
+		return
+	}
+
+	if a.attachmentGallery != nil {
+		a.loadGalleryThumbnails(out)
+
+		return
+	}
+
+	if a.settingsOpen || a.attachmentTitle != "" || a.filePicker != nil || a.textAttachmentPrompt != nil || a.reactionAuthors != nil || len(a.confirmDelete) != 0 || a.forwardIDs != nil || a.chatPicker || a.messageSearch != nil || a.reactionPickerOpen || len(a.linkChoices) != 0 {
 		return
 	}
 
 	current := a.currentChat()
-	for _, msg := range a.log[a.offset:min(len(a.log), a.offset+min(a.visibleMessages, 12))] {
+	file := a.directAvatarFile(current)
+
+	if key := inlineAvatarKey(file); key != "" && a.inlineImages.Start(key) {
+		a.inlineLoading = true
+
+		out <- request{kind: "inlineImage", attachment: file, text: key}
+
+		return
+	}
+
+	visible := a.log[a.offset:min(len(a.log), a.offset+min(a.visibleMessages, 12))]
+
+	for _, msg := range visible {
 		if key, file := inlineAttachment(msg.attachment); key != "" && a.inlineImages.Start(key) {
 			a.inlineLoading = true
 
@@ -108,6 +212,21 @@ func (a *app) loadVisibleImages(out chan<- request) {
 			}
 		}
 	}
+
+	if !a.showMessageAvatars(current) {
+		return
+	}
+
+	for _, msg := range visible {
+		file := a.avatarFile(msg, current)
+		if key := inlineAvatarKey(file); key != "" && a.inlineImages.Start(key) {
+			a.inlineLoading = true
+
+			out <- request{kind: "inlineImage", attachment: file, text: key}
+
+			return
+		}
+	}
 }
 
 type imageBuffer struct{ bytes.Buffer }
@@ -120,12 +239,12 @@ func (buf *imageBuffer) Write(p []byte) (int, error) {
 	return buf.Buffer.Write(p)
 }
 
-func fetchInlineImage(ctx context.Context, client *telegram.Client, req request) *tui.InlineImage {
+func fetchInlineImage(ctx context.Context, client *telegram.Client, accountID int64, req request) *tui.InlineImage {
 	ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
 
 	if req.reactionDocument != 0 {
-		path, err := downloadReactionImage(ctx, client, req.reactionDocument)
+		path, err := downloadReactionImage(ctx, client, accountID, req.reactionDocument)
 		if err != nil {
 			return nil
 		}
@@ -142,26 +261,44 @@ func fetchInlineImage(ctx context.Context, client *telegram.Client, req request)
 	}
 
 	file := req.attachment
-	if len(file.inlineData) > 0 {
-		preview, _ := tui.DecodeInlineImage(bytes.NewReader(file.inlineData), 12, 4)
-		return preview
+
+	var key string
+
+	if accountID != 0 {
+		key = strconv.FormatInt(accountID, 10) + "\x00" + req.text
 	}
 
-	invoker, err := client.FileDC(ctx, file.dc)
-	if err != nil {
-		return nil
+	decode := func(r io.Reader) (*tui.InlineImage, error) { return tui.DecodeInlineImage(r, 12, 4) }
+	_, avatar := file.location.(*tg.InputPeerPhotoFileLocation)
+
+	if avatar {
+		decode = tui.DecodeInlineAvatar
 	}
 
-	stream := client.DownloadVia(invoker, file.location).
-		WithRefresh(fileref.Message(client.API(), req.chat.input, req.anchor, file.location)).
-		WithSize(file.size)
+	preview, _ := tui.CachedImage("telega", key, 0, decode,
+		func() ([]byte, error) {
+			if len(file.inlineData) > 0 {
+				return file.inlineData, nil
+			}
 
-	var data imageBuffer
-	if _, err := stream.Stream(ctx, &data); err != nil {
-		return nil
-	}
+			invoker, err := client.FileDC(ctx, file.dc)
+			if err != nil {
+				return nil, err
+			}
 
-	preview, _ := tui.DecodeInlineImage(&data, 12, 4)
+			stream := client.DownloadVia(invoker, file.location)
+			if !avatar {
+				stream.WithRefresh(fileref.Message(client.API(), req.chat.input, req.anchor, file.location)).
+					WithSize(file.size)
+			}
+
+			var data imageBuffer
+			if _, err := stream.Stream(ctx, &data); err != nil {
+				return nil, err
+			}
+
+			return data.Bytes(), nil
+		})
 
 	return preview
 }

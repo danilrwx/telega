@@ -21,10 +21,11 @@ type diskAttachment struct {
 	Checked                    bool
 	Size                       int64
 	Modified                   time.Time
+	VoiceSeconds               int `json:",omitempty"`
 }
 
 func savedAttachment(upload *uploadAttachment, asFile bool) diskAttachment {
-	saved := diskAttachment{Path: upload.path, Format: upload.format, AsFile: asFile, Managed: upload.managed, Temporary: upload.temporary}
+	saved := diskAttachment{Path: upload.path, Format: upload.format, AsFile: asFile, Managed: upload.managed, Temporary: upload.temporary, VoiceSeconds: upload.voiceSeconds}
 	if upload.original != nil {
 		saved.Checked, saved.Size, saved.Modified = true, upload.original.Size(), upload.original.ModTime().UTC()
 	}
@@ -40,7 +41,7 @@ func (file diskAttachment) upload() *uploadAttachment {
 	info, _ := os.Stat(file.Path)
 	changed := file.Checked && (info == nil || info.Size() != file.Size || !info.ModTime().Equal(file.Modified))
 
-	return &uploadAttachment{path: file.Path, format: file.Format, managed: file.Managed, temporary: file.Temporary && file.Managed, original: info, changed: changed}
+	return &uploadAttachment{path: file.Path, format: file.Format, managed: file.Managed, temporary: file.Temporary && file.Managed, original: info, changed: changed, voiceSeconds: file.VoiceSeconds}
 }
 
 func (a *app) diskDraftKey() string {

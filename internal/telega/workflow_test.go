@@ -212,12 +212,12 @@ func TestJumpSearchAndUnread(t *testing.T) {
 		return nil
 	}))
 
-	log, err = searchHistory(t.Context(), api, req)
+	hits, next, err := searchMessages(t.Context(), api, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	a.receive(out, serverEvent{kind: req.kind, chat: c.key, log: log})
+	a.receive(out, serverEvent{kind: req.kind, messageSearch: req.messageSearch, searchID: req.searchID, messageHits: hits, searchCursor: next})
 	a.input(key{name: "enter"}, out)
 
 	if req = <-out; req.kind != "jump" || req.anchor != 20 {
@@ -365,7 +365,7 @@ func TestUnknownLiveAuthorAndCodeEdit(t *testing.T) {
 
 		return nil
 	}))
-	name := lookupAuthor(t.Context(), api, req)
+	name, _ := lookupAuthor(t.Context(), api, req)
 	a.receive(out, serverEvent{kind: "author", author: sender, text: name})
 	a.requestMissingAuthor(out)
 

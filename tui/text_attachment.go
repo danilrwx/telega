@@ -48,5 +48,10 @@ func (p *TextAttachmentPrompt) Render(width int, render func(string, bool, bool,
 		render(Clip(p.status, width), false, false, false)
 	}
 
-	render(Clip("Enter edit in Vim  Esc back", width), false, false, true)
+	hint := "Enter edit file  Esc back"
+	if width < 27 {
+		hint = "Enter edit  Esc"
+	}
+
+	render(Clip(hint, width), false, false, true)
 }
