@@ -1,89 +1,31 @@
-# telega
+# Telega
 
-Telegram for the terminal. Catch up on chats, search conversations, and reply with Vim-style navigation on Linux and OpenBSD.
-
-[Download telega](#install) · [Release notes and checksums](https://github.com/danilrwx/telega/releases/latest)
-
-![The telega offline demo in a dark terminal showing unread markers, colored author names, reactions, a quoted reply, and the inline composer](docs/demo-unread.png)
-*Offline demo from the current source tree.*
+**Telegram for your terminal.** Catch up on unread chats, find anything in your history, and reply with Vim-style keys. Runs on Linux and OpenBSD, including the Pomera DM250.
 
 ## Install
 
-Pick a prebuilt archive. The OpenBSD ARMv7 build is the one to try on a Pomera DM250.
-
-| System | amd64 | ARM64 | ARMv7 |
-| --- | --- | --- | --- |
-| Linux | [Download](https://github.com/danilrwx/telega/releases/latest/download/telega_linux_amd64.tar.gz) | [Download](https://github.com/danilrwx/telega/releases/latest/download/telega_linux_arm64.tar.gz) | [Download](https://github.com/danilrwx/telega/releases/latest/download/telega_linux_armv7.tar.gz) |
-| OpenBSD | [Download](https://github.com/danilrwx/telega/releases/latest/download/telega_openbsd_amd64.tar.gz) | [Download](https://github.com/danilrwx/telega/releases/latest/download/telega_openbsd_arm64.tar.gz) | [Download](https://github.com/danilrwx/telega/releases/latest/download/telega_openbsd_armv7.tar.gz) |
-
-Extract your archive and start the offline demo. Replace the filename below with the one you downloaded.
-
 ```sh
-tar -xzf telega_linux_amd64.tar.gz
-./telega --demo
+curl -fsSL https://raw.githubusercontent.com/danilrwx/telega/main/scripts/install.sh | sh
 ```
 
-The demo uses sample chats and needs no Telegram account or network connection. Follow the hints at the bottom of the screen.
-
-To install it for your user account, put the binary in a directory on your `PATH`, such as `~/.local/bin`.
+The installer picks the right build, checks its SHA-256 hash, and installs it to `~/.local/bin`. [Download an archive instead](https://github.com/danilrwx/telega/releases/latest).
 
 ```sh
-install -d "$HOME/.local/bin"
-install -m 755 telega "$HOME/.local/bin/telega"
+~/.local/bin/telega --demo
 ```
 
-## Sign in
+Try sample chats offline before signing in.
 
-1. Get your `api_id` and `api_hash` under **API development tools** at [my.telegram.org](https://my.telegram.org).
-2. Run `./telega` and enter those values when prompted.
-3. In Telegram on your phone, open **Settings → Devices → Link Desktop Device** and scan the QR code. For phone-number sign-in, use `./telega --phone`.
+![Telega showing unread chats, colored sender names, reactions, and the message composer](docs/demo-unread.png)
 
 ## What you can do
 
-- **Catch up quickly.** Switch chats from the conversation view, filter the chat list to unread chats, and browse archives, forum topics, and channel comments. Open chat search with `Ctrl+K` and enter a display name or `@username`. The picker includes older and archived conversations. History loads in pages.
-- **Keep context in view.** Read formatted messages, dates, replies, and reactions. Use `?` to search the current chat or topic on Telegram and `Ctrl+F` to search all chats. In the search window, `Tab` changes scope, `Enter` searches or opens a result, and `PgDn` loads more.
-- **Write from the keyboard.** The composer stays visible in the chat pane and grows up to half the window. Press `i` to type, `Ctrl+X` to edit the draft using `$VISUAL`, `$EDITOR`, or Vim, and `Esc` to return to navigation. Text drafts stay on this computer and reopen with their chat or topic, even after restarting. You can send multiline messages and code, paste screenshots, and retry failed sends.
+- **Find it fast.** Jump to a chat by name or username. Search messages across Telegram or browse a chat’s full media history.
+- **Handle voice messages in place.** Record, play, pause, and read Telegram’s transcription beneath the message.
+- **Make the terminal yours.** Keep drafts when you quit, edit in Vim, and see photos and avatars in Kitty or Sixel terminals.
 
-The interface works in a text console with ANSI colors and text labels for reactions. In tmux, notifications highlight the window when bell monitoring is enabled. Desktop integration adds clipboard images, system openers, and desktop alerts where supported.
+## Sign in
 
-Set `TUI_CHAT_STATUS_FILE` to an optional path (in an existing directory) for a status-bar integration. Telega writes `unread mentions` on one line: the number of unread chats, including manually marked chats, and the total unread mentions on the currently loaded Telegram dialog page. This is not an account-wide count and ignores local search and unread-only filters. The file is refreshed while the client runs, including while tmux is detached, and removed when status is unavailable or on normal exit. With status publishing enabled in tmux, telega only auto-marks messages read if its pane is active in an attached session.
+Get your API ID and hash from **API development tools** at [my.telegram.org](https://my.telegram.org). Run `~/.local/bin/telega` and scan the QR code in Telegram under **Settings → Devices → Link Desktop Device**. Use `--phone` for phone-number sign-in.
 
-Videos show their duration, size, and resolution when Telegram provides them. Opened attachments are cached under `${XDG_CACHE_HOME:-$HOME/.cache}/telega/attachments` for reuse across sessions.
-
-Press `z` to react. Use `←` and `→` to browse reactions already on the message, and `Enter` to add your own. Press `Shift+Z` to see who reacted when Telegram makes the list available.
-
-Press `?` for search in the current chat or `Ctrl+F` for all chats. `Shift+Tab` cycles through messages, photos, files, links, and voice messages. In a media filter, press `Enter` with an empty query to browse that category. `PgDn` loads more results.
-
-Press `a` in the chat or `Alt+A` while composing to open the file picker. Use the arrows to choose, `Tab` to complete the path, and `Enter` to open a directory or attach a file. Use `Ctrl+T` in the picker or `Alt+T` in the chat to turn draft text into an attachment in the configured editor. Enter a filename with any extension, or press `Enter` to use `message.txt`. `Ctrl+O` opens draft attachments. Press `a` to add, `e` to edit a copy, `d` to remove, or `Enter` to open.
-
-Press `V` to browse attachments across the chat's full history. Use `Tab` to switch between media, files, links, music, and voice messages. Media shows a thumbnail grid with Kitty or Sixel graphics. Use the arrows or `hjkl` to move, `PgDn` to browse older results, `Enter` to open the item, and `g` to go to its message.
-
-Press `Alt+V` in a chat to record a voice message from the default microphone. During recording, `Enter` or `Alt+V` keeps the recording in the draft, and `Esc` discards it. Press `Enter` again to send, or use `Ctrl+O` and `Enter` to listen before sending. Recording requires FFmpeg with PulseAudio input (including PipeWire's PulseAudio service) and the libopus encoder.
-
-Press `o` on a voice message or `Enter` on a voice recording in the gallery or draft to play it in Telega. Press `Alt+P` to pause or resume and `Alt+Shift+P` to stop. Playback uses FFmpeg with PulseAudio output.
-
-Press `Alt+R` on a Telegram voice message in a chat or the gallery to open its transcript. Scroll with `j` and `k` or `PgUp` and `PgDn`. Completed transcripts also appear beneath voice messages in the chat during the current session. Telegram generates the text subject to the account's transcription limits.
-
-Open `Alt+S` to configure the chat list, display names, message alignment and avatars. **Hide chat list when open** gives the conversation the full terminal width. Press `h` to return to the chat list.
-
-![The file picker showing completion results, a selected Markdown file, and keyboard shortcuts](docs/demo-file-picker.png)
-
-## Your account and data
-
-telega connects directly to Telegram over MTProto through [gotd](https://github.com/gotd/td). Your API credentials and reusable session are stored in private files under `${XDG_DATA_HOME:-$HOME/.local/share}/telega`. Notifications show who or which chat they came from when available and keep message text out of the alert.
-
-telega is open source under the [Apache License 2.0](LICENSE). GitHub Actions runs the tests and publishes SHA-256 checksums alongside the [release archives](https://github.com/danilrwx/telega/releases/latest).
-
-## Build from source
-
-Use Go 1.26 or later and `make`. Run `make` for your system or `make dm250` to cross-build for OpenBSD/ARMv7. See [CONTRIBUTING.md](CONTRIBUTING.md) for development and release commands.
-
-### Реакции и изображения
-
-`z` открывает быстрые реакции. `Tab` показывает доступные для чата реакции. Введите имя или эмодзи, выберите стрелками и нажмите `Enter`. Повторный выбор снимает реакцию. Число реакций на одном сообщении зависит от лимита Telegram.
-
-С Kitty или Sixel миниатюры вложенных изображений видны под сообщениями, а пользовательские реакции со статической картинкой отображаются рядом со счётчиком. Нажмите `o`, чтобы открыть фото крупнее. Повторное `o` открывает его в системном просмотрщике. `Ctrl+O` в каталоге реакций показывает статическую картинку выбранной пользовательской реакции, если Telegram её отдаёт. `Esc` закрывает просмотр.
-
-В `Alt+S` можно отдельно настроить имена в личках, выравнивание исходящих справа и расположение аватарок. Используйте `j` / `k` или стрелки для выбора и `Enter` для изменения. По умолчанию имена и аватарки стоят рядом с сообщениями, исходящие выровнены слева. Выбор сохраняется между запусками.
-
-Графика включается автоматически в Kitty и Foot. Для другого терминала с поддержкой Sixel запустите клиент с `TUI_GRAPHICS=sixel`. `TUI_GRAPHICS=off` отключает графику. В tmux автоматический выбор Sixel требует поддержки Sixel в сборке tmux и на внешнем терминале.
+[Keyboard shortcuts and setup](https://github.com/danilrwx/telega/blob/main/docs/usage.md) · [Releases](https://github.com/danilrwx/telega/releases) · [Build from source](https://github.com/danilrwx/telega/blob/main/CONTRIBUTING.md)
