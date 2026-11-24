@@ -2,6 +2,8 @@
 
 **Telegram for your terminal.** Catch up on unread chats, find anything in your history, and reply with Vim-style keys. Runs on Linux and OpenBSD, including the Pomera DM250.
 
+**About 13 MiB of RAM** in the text-mode chat demo on Linux x86-64. [Memory measurements](docs/memory.md)
+
 ## Install
 
 ```sh
