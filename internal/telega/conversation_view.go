@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danilrwx/telega/tui"
+	"github.com/gotd/td/tg"
 	"github.com/rivo/uniseg"
 )
 
@@ -18,12 +20,12 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 	}
 
 	b.WriteString(colors.heading)
-	label(left, 1, cols-left, title)
+	label(left+1, 1, cols-left-1, title)
 	b.WriteString("\x1b[0m")
 
 	broadcast := current.key.kind == 'c' && !current.group
 	body := left + 8
-	bodyWidth := min(90, cols-body+1)
+	bodyWidth := cols - body + 1
 	bottom := statusRow
 
 	const firstMessageRow = 2
@@ -44,7 +46,11 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 
 	for i, msg := range a.log[a.offset:] {
 		author := a.authorLabel(msg)
+
 		style := "\x1b[1m"
+		if !msg.out && !msg.service {
+			style = a.nicknameStyle(current, msg)
+		}
 
 		switch {
 		case current.key.kind == 'u' && msg.out:
@@ -61,7 +67,27 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			style = colors.outgoing
 		}
 
-		hasHeader := author != "" || msg.edited
+		var metadata []string
+
+		if msg.out && msg.id > 0 && !msg.service {
+			tick := "✓"
+			if a.console {
+				tick = "+"
+			}
+
+			_, saved := current.input.(*tg.InputPeerSelf)
+			if !broadcast && !saved && msg.id <= current.readOutboxID {
+				tick += tick
+			}
+
+			metadata = append(metadata, tick)
+		}
+
+		if msg.edited {
+			metadata = append(metadata, "edited")
+		}
+
+		hasHeader := author != "" || len(metadata) > 0
 
 		minRows := 1
 		if hasHeader {
@@ -142,24 +168,26 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 		b.WriteString("\x1b[0m")
 
 		if header {
-			authorWidth := bodyWidth + 2
-			mark := "edited"
+			width := bodyWidth + 2
+			mark := strings.Join(metadata, " · ")
 
 			if author != "" {
-				if msg.edited {
-					mark = " · edited"
-					authorWidth -= uniseg.StringWidth(mark)
-					author = wrap(author, authorWidth, 1)[0]
+				if mark != "" {
+					mark = " · " + mark
 				}
 
+				author = tui.Wrap(author, max(1, width-uniseg.StringWidth(mark)), 1)[0]
+
 				b.WriteString(style)
-				label(left+6, bottom, authorWidth, author)
+				label(left+6, bottom, width, author)
 				b.WriteString("\x1b[0m")
 			}
 
-			if msg.edited {
+			if mark != "" {
+				authorWidth := uniseg.StringWidth(author)
+
 				b.WriteString(colors.muted)
-				label(left+6+uniseg.StringWidth(author), bottom, uniseg.StringWidth(mark), mark)
+				label(left+6+authorWidth, bottom, width-authorWidth, mark)
 				b.WriteString("\x1b[0m")
 			}
 		}
@@ -178,9 +206,9 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			label(left-1, bottom, 1, "›")
 		}
 
-		railStyle := "\x1b[2m"
+		railStyle := colors.railMuted
 		if i == 0 {
-			railStyle = "\x1b[36m"
+			railStyle = colors.rail
 		}
 
 		for row, line := range lines {

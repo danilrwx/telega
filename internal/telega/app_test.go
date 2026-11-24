@@ -1,16 +1,8 @@
 package telega
 
 import (
-	"slices"
 	"testing"
 )
-
-func TestWrapTerminalText(t *testing.T) {
-	got := wrap("界я\n\x1babc", 3, 3)
-	if !slices.Equal(got, []string{"界я", " ab", "c"}) {
-		t.Fatalf("unexpected rows: %q", got)
-	}
-}
 
 func TestHistoryKeepsLiveEdit(t *testing.T) {
 	var a app

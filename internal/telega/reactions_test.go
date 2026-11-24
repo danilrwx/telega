@@ -99,7 +99,100 @@ func TestConsoleReactionLabels(t *testing.T) {
 
 	out := screen.String()
 	if !strings.Contains(out, "1 Like 2 Heart 3 Fire") || !strings.Contains(out, "4 Laugh 5 Party 6 No") ||
-		!strings.Contains(out, "Your reaction: heart") || strings.Contains(out, "👍") {
+		strings.Contains(out, "👍") {
 		t.Fatalf("unexpected console reaction menu: %q", out)
+	}
+
+	screen.Reset()
+
+	if err := paint(&screen, &a, 80, 12); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := screen.String(); !strings.Contains(out, "Your reaction: heart") {
+		t.Fatalf("wide reaction menu did not show the user's reaction: %q", out)
+	}
+}
+
+func TestReactionPickerKeepsMultipleChoicesAndUsesTelegramLaugh(t *testing.T) {
+	requests := make(chan request, 4)
+	c := chat{key: peerKey{'u', 42}, title: "Lab"}
+	a := app{open: true, ready: true, chats: []chat{c}, log: []message{{id: 7, text: "A message"}}}
+	a.input(key{text: "z"}, requests)
+	a.input(key{text: "4"}, requests)
+
+	first := <-requests
+	if len(first.reactions) != 1 || first.reactions[0].emoji != "🤣" {
+		t.Fatalf("wrong Telegram laugh reaction: %+v", first)
+	}
+
+	a.input(key{text: "1"}, requests)
+	a.receive(requests, serverEvent{kind: "react", chat: c.key, anchor: 7, chosenReactions: first.reactions})
+
+	second := <-requests
+	if len(second.reactions) != 2 || second.reactions[0].emoji != "🤣" || second.reactions[1].emoji != "👍" {
+		t.Fatalf("second choice lost the first: %+v", second)
+	}
+
+	a.receive(requests, serverEvent{kind: "react", chat: c.key, anchor: 7, chosenReactions: second.reactions})
+	a.input(key{name: "tab"}, requests)
+
+	if req := <-requests; req.kind != "reactionCatalog" {
+		t.Fatalf("picker did not request the catalog: %+v", req)
+	}
+
+	a.receive(requests, serverEvent{kind: "reactionCatalog", chat: c.key, messageReactions: []reactionChoice{
+		{emoji: "🤣", title: "Laugh"}, {emoji: "👍", title: "Like"},
+	}})
+	a.input(key{name: "paste", text: "laugh"}, requests)
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 80, 22); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := screen.String(); !strings.Contains(out, "A message") || !strings.Contains(out, "🤣 Laugh ✓") {
+		t.Fatalf("filtered picker did not keep the conversation and selected reaction: %q", out)
+	}
+
+	a.input(key{name: "enter"}, requests)
+
+	last := <-requests
+	if len(last.reactions) != 1 || last.reactions[0].emoji != "👍" {
+		t.Fatalf("toggle should remove only the selected reaction: %+v", last)
+	}
+}
+
+func TestQuickPickerJoinsExistingReactions(t *testing.T) {
+	requests := make(chan request, 2)
+	c := chat{key: peerKey{'u', 42}, title: "Lab"}
+	chosen := reactionChoice{emoji: "👍", count: 1}
+	custom := reactionChoice{custom: 42, title: "Custom emoji 42", count: 2}
+	a := app{open: true, ready: true, chats: []chat{c}, log: []message{{
+		id: 7, text: "A message", chosenReactions: []reactionChoice{chosen},
+		messageReactions: []reactionChoice{chosen, {emoji: "👀", count: 3}, custom},
+	}}}
+	a.input(key{text: "z"}, requests)
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 80, 22); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := screen.String(); !strings.Contains(got, "Enter 👀 3") || !strings.Contains(got, "1 👍") {
+		t.Fatalf("suggestions should be visible beside the digit shortcuts: %q", got)
+	}
+
+	a.input(key{name: "right"}, requests)
+	a.input(key{name: "enter"}, requests)
+	a.input(key{name: "enter"}, requests)
+
+	got := <-requests
+	if len(got.reactions) != 2 || !got.reactions[0].same(chosen) || !got.reactions[1].same(custom) {
+		t.Fatalf("custom suggestion should be added alongside the user's prior reactions: %+v", got)
+	}
+
+	if len(a.reactionQueue) != 0 {
+		t.Fatal("holding Enter should not queue a second toggle")
 	}
 }

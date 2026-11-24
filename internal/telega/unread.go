@@ -52,6 +52,23 @@ func unreadCount(n int) string {
 	return fmt.Sprint(n)
 }
 
+// chatStatusCounts includes all chats on the loaded page, independent of UI filters.
+func (a *app) chatStatusCounts() (unread, mentions int, available bool) {
+	if a.demo || !a.ready || !a.dialogsLoaded {
+		return 0, 0, false
+	}
+
+	for _, c := range a.chats {
+		if c.unread.any() {
+			unread++
+		}
+
+		mentions += max(0, c.unread.mentions)
+	}
+
+	return unread, mentions, true
+}
+
 func (a *app) nextUnread(step int) {
 	indexes := a.visibleChats()
 	if len(indexes) == 0 {
@@ -188,7 +205,7 @@ func (a *app) markVisibleRead(out chan<- request) {
 	}
 
 	target := chatPosition{chat: current.key, id: anchor}
-	if target == a.lastAutoRead {
+	if target == a.lastAutoRead || a.autoReadVisible != nil && !a.autoReadVisible() {
 		return
 	}
 

@@ -80,6 +80,17 @@ func TestDeletionConfirmationAndScope(t *testing.T) {
 		t.Fatal("deletion must wait for confirmation")
 	}
 
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+
+	if output := screen.String(); !strings.Contains(output, "\x1b[23;2HDelete 2 messages for you?") ||
+		!strings.Contains(output, "\x1b[24;2Hy confirm deletion  Esc cancel") ||
+		!strings.Contains(output, "Message") {
+		t.Fatalf("confirmation should sit below the visible conversation: %q", output)
+	}
+
 	a.input(key{name: "escape"}, requests)
 
 	if len(requests) != 0 || len(a.selection) != 2 {
@@ -141,6 +152,27 @@ func TestDeletionConfirmationAndScope(t *testing.T) {
 	}
 }
 
+func TestChatAttachmentsOpenTheSelectedMessage(t *testing.T) {
+	file := &attachment{name: "report.pdf", location: &tg.InputDocumentFileLocation{ID: 41}}
+	a := app{
+		ready: true, open: true, chats: []chat{{key: peerKey{'u', 17}}},
+		log: []message{{id: 22, attachment: file}, {id: 21, text: "No file"}},
+	}
+	out := make(chan request, 1)
+	a.input(key{text: "V"}, out)
+
+	if len(a.attachmentChoices) != 1 {
+		t.Fatal("V should list attachments in the loaded conversation")
+	}
+
+	a.input(key{name: "enter"}, out)
+
+	req := <-out
+	if req.kind != "download" || req.anchor != 22 || req.attachment != file {
+		t.Fatalf("picker opened the wrong attachment: %+v", req)
+	}
+}
+
 func TestImageStagingAndUpload(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a screenshot.png")
@@ -164,6 +196,7 @@ func TestImageStagingAndUpload(t *testing.T) {
 	}
 
 	t.Setenv("PATH", dir)
+	t.Setenv("XDG_STATE_HOME", dir)
 	t.Setenv("WAYLAND_DISPLAY", "test")
 	t.Setenv("DISPLAY", "")
 	t.Setenv("TELEGA_TEST_IMAGE", path)
@@ -212,15 +245,33 @@ func TestImageStagingAndUpload(t *testing.T) {
 	a.receive(requests, serverEvent{kind: "imageReady", upload: staged})
 
 	var screen bytes.Buffer
-	if err := paint(&screen, &a, 80, 24); err != nil || !strings.Contains(screen.String(), "Caption > ") ||
-		!strings.Contains(screen.String(), "\x1b[20;12Hcaption\x1b[21;12Hsecond\x1b[22;12Hthird\x1b[23;12Hfourth") {
-		t.Fatalf("caption lines were not shown: %v", err)
+	if err := paint(&screen, &a, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, part := range []string{"─ Caption ", "\x1b[18;30HPhoto: Screenshot.png", "\x1b[19;30Hcaption", "\x1b[20;30Hsecond", "\x1b[21;30Hthird", "\x1b[22;30Hfourth"} {
+		if !strings.Contains(screen.String(), part) {
+			t.Errorf("caption is missing %q", part)
+		}
+	}
+
+	a.input(key{name: "jumpBack"}, requests)
+
+	if len(a.attachmentChoices) != 1 {
+		t.Fatal("Ctrl+O did not show the staged attachment")
+	}
+
+	a.input(key{name: "enter"}, requests)
+
+	if a.openTarget != staged.path || !a.composing {
+		t.Fatal("preview should target the staged file and leave the draft open")
 	}
 
 	if len(requests) != 0 {
 		t.Fatal("staging must not send anything")
 	}
 
+	a.input(key{name: "escape"}, requests)
 	a.input(key{name: "enter"}, requests)
 	req := <-requests
 	parts := 0

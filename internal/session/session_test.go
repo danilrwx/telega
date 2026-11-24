@@ -67,3 +67,16 @@ func TestSavedAPIConfig(t *testing.T) {
 		t.Fatal("environment must override saved Telegram API credentials")
 	}
 }
+
+func TestAPICredentialsTrimSurroundingWhitespace(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef"
+
+	got, err := parseCredentials(" \t123\r\n", "\t "+hash+" \r\n", t.TempDir())
+	if err != nil || got.APIID != 123 || got.APIHash != hash {
+		t.Fatal("pasted credentials should accept surrounding whitespace")
+	}
+
+	if _, err := parseCredentials("123", hash[:16]+" "+hash[16:], t.TempDir()); err == nil {
+		t.Fatal("internal whitespace should be rejected")
+	}
+}

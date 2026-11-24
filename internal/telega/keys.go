@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/danilrwx/telega/tui"
 	"golang.org/x/sys/unix"
 )
 
@@ -16,7 +17,7 @@ type key struct {
 	text string
 }
 
-func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key) {
+func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key, keyDone <-chan bool) {
 	defer close(out)
 
 	r := bufio.NewReader(in)
@@ -29,6 +30,10 @@ func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key) {
 		var k key
 
 		switch ch {
+		case 1:
+			k.name = "ctrl+a"
+		case 5:
+			k.name = "ctrl+e"
 		case 2:
 			k.name = "fileMode"
 		case 9:
@@ -41,8 +46,12 @@ func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key) {
 			k.name = "jumpBack"
 		case 19:
 			k.name = "saveDraft"
+		case 20:
+			k.name = "textAttachment"
 		case 22:
 			k.name = "pasteImage"
+		case 24:
+			k.name = "editor"
 		case 21:
 			k.name = "pageup"
 		case 4:
@@ -68,6 +77,15 @@ func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key) {
 		case <-ctx.Done():
 			return
 		}
+		// A command may give the terminal to Vim until the UI finishes it.
+		select {
+		case edited := <-keyDone:
+			if edited {
+				_, _ = r.Discard(r.Buffered())
+			}
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -81,10 +99,17 @@ func escapeKey(fd int, r *bufio.Reader) key {
 		}
 	}
 
-	start, err := r.ReadByte()
+	start, _, err := r.ReadRune()
 	if err != nil || (start != '[' && start != 'O') {
 		if err == nil {
-			_ = r.UnreadByte()
+			switch tui.RussianCommandRune(start) {
+			case 'a':
+				return key{name: "alt+a"}
+			case 't':
+				return key{name: "alt+t"}
+			}
+
+			_ = r.UnreadRune()
 		}
 
 		return key{name: "escape"}
@@ -190,30 +215,7 @@ func commandKey(k key) key {
 
 	r, _ := utf8.DecodeRuneInString(k.text)
 
-	const (
-		russian = "йцукенгшщзхъфывапролджэячсмитьбюё"
-		latin   = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`"
-	)
-
-	switch r {
-	case '.':
-		k.text = "/"
-	case ',':
-		k.text = "?"
-	default:
-		for i, candidate := range []rune(russian) {
-			if unicode.ToLower(r) == candidate {
-				mapped := rune(latin[i])
-				if unicode.IsUpper(r) {
-					mapped = unicode.ToUpper(mapped)
-				}
-
-				k.text = string(mapped)
-
-				break
-			}
-		}
-	}
+	k.text = string(tui.RussianCommandRune(r))
 
 	return k
 }

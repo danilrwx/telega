@@ -3,11 +3,10 @@ package telega
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"slices"
 	"strings"
-	"unicode"
 
+	"github.com/danilrwx/telega/tui"
 	"github.com/rivo/uniseg"
 )
 
@@ -23,43 +22,6 @@ func limitText(text string, limit int) string {
 	return text
 }
 
-func wrap(text string, width, limit int) []string {
-	lines := make([]string, 0, min(limit, 4))
-
-	var line strings.Builder
-
-	chars := uniseg.NewGraphemes(text)
-	cells := 0
-
-	for chars.Next() {
-		word, span := chars.Str(), chars.Width()
-
-		newline := word == "\n" || word == "\r\n"
-		if !newline && strings.ContainsFunc(word, unicode.IsControl) {
-			word, span = " ", 1
-		}
-
-		if newline || span+cells > width {
-			lines = append(lines, line.String())
-			if len(lines) == limit {
-				return lines
-			}
-
-			line.Reset()
-
-			cells = 0
-		}
-
-		if !newline && span <= width {
-			line.WriteString(word)
-
-			cells += span
-		}
-	}
-
-	return append(lines, line.String())
-}
-
 func shortSender(title string, width int) string {
 	names := strings.Fields(title)
 	if len(names) == 0 {
@@ -67,11 +29,8 @@ func shortSender(title string, width int) string {
 	}
 
 	name := names[0]
-	if uniseg.StringWidth(name) > width {
-		return wrap(name, width-1, 1)[0] + "…"
-	}
 
-	return name
+	return tui.Clip(name, width)
 }
 
 const minTerminalCols, minTerminalRows = 24, 7
@@ -83,13 +42,21 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	a.historyRoom, a.visibleMessages = 0, 0
 	a.noticeStatusVisible = false
 
+	if a.imagePreview != nil {
+		if _, err := io.WriteString(w, "\x1b[?25l"); err != nil {
+			return err
+		}
+
+		return a.imagePreview.WritePreview(w, a.imagePreviewTitle, cols, rows, a.imagePreviewPath != "")
+	}
+
 	if cols < minTerminalCols || rows < minTerminalRows {
 		_, err := io.WriteString(w, b.String()+"\x1b[HResize your terminal")
 		return err
 	}
 
 	label := func(x, y, width int, value string) {
-		fmt.Fprintf(&b, "\x1b[%d;%dH%s", y, x, wrap(value, width, 1)[0])
+		fmt.Fprintf(&b, "\x1b[%d;%dH%s", y, x, tui.Wrap(value, width, 1)[0])
 	}
 	if len(a.topicEntries) > 0 {
 		label(2, 1, cols-2, a.currentChat().title+" · Topics")
@@ -121,7 +88,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			label(2, 1, cols-2, fmt.Sprintf("Forward %d message(s)?", len(a.forwardIDs)))
 			label(2, rows, cols-2, "y send  Esc change recipient")
 
-			for i, line := range wrap("To: "+a.forwardTo.title, cols-2, rows-2) {
+			for i, line := range tui.Wrap("To: "+a.forwardTo.title, cols-2, rows-2) {
 				label(2, i+2, cols-2, line)
 			}
 		} else {
@@ -193,9 +160,9 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if a.open {
-		keys = "jk move  Ctrl+N/P chats  i write  r reply  z react  ? search"
+		keys = "jk move  Ctrl+N/P chats  i write  a attach  z react  Z authors  r reply  V attachments  ? search"
 		if a.thread != nil {
-			keys = "jk move  h back  i write  r reply  z react  ? search"
+			keys = "jk move  h back  i write  a attach  z react  Z authors  r reply  V attachments  ? search"
 		}
 
 		if a.pending == "" && len(a.log) > 0 && a.log[a.offset].editable() {
@@ -207,41 +174,64 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		keys = "Enter select   Esc cancel"
 	}
 
-	if a.imagePath {
-		keys = "Enter attach  Esc cancel"
-	}
-
 	if len(a.linkChoices) > 0 {
 		keys = "jk choose link  Enter open  Esc cancel"
 	}
 
-	if len(a.confirmDelete) > 0 {
-		keys = "y confirm deletion  Esc cancel"
-	}
+	retryingSend := a.composing && a.retrySend != nil
 
 	if a.composing {
-		keys = "Enter send  Ctrl+J newline  Esc cancel"
+		keys = "Enter send  Ctrl+X Vim  Ctrl+J newline  Esc keep draft"
 		if a.editID != 0 {
-			keys = "Enter save edit  Ctrl+J newline  Esc cancel"
+			keys = "Enter save edit  Ctrl+X Vim  Ctrl+J newline  Esc keep draft"
 		} else if a.staged == nil && !a.demo {
-			keys = "Enter send  Ctrl+J newline  Ctrl+V image  Esc cancel"
+			keys = "Enter send  Ctrl+X Vim  Ctrl+J newline  Ctrl+V image  Esc keep draft"
 		} else if a.staged != nil && a.staged.format != "" && a.staged.format != "gif" {
-			keys = "Enter send  Ctrl+B photo/file  Ctrl+J newline  Esc cancel"
+			keys = "Enter send  Ctrl+X Vim  Ctrl+B photo/file  Ctrl+J newline  Esc keep draft"
+		}
+
+		if retryingSend {
+			keys = "Enter retry" + strings.TrimPrefix(keys, "Enter send")
+		}
+
+		if a.editID == 0 {
+			keys = strings.Replace(keys, "Ctrl+X Vim", "Alt+A attach  Alt+T text file  Ctrl+O draft files  Ctrl+X Vim", 1)
 		}
 	}
 
+	reactionPrompt := ""
+
+	reactionSuggestion := a.reactionSuggestionRow(cols - 2)
 	if a.pickingReaction {
-		keys = "1 👍  2 ❤️  3 🔥  4 😂  5 🎉  6 👎  Esc cancel"
+		reactionPrompt = "Choose a reaction · select it again to remove"
 
-		if a.textReactions {
-			first, second := "1 Like 2 Heart 3 Fire", "4 Laugh 5 Party 6 No"
-
-			keys = first + "  " + second + "  Esc cancel"
-			if len(keys) > cols-2 {
-				label(2, rows-1, cols-2, first)
-
-				keys = second
+		if len(a.log) > 0 && a.log[a.offset].myReaction != "" {
+			chosen := a.log[a.offset].myReaction
+			if a.textReactions {
+				chosen = reactionName(chosen)
 			}
+
+			reactionPrompt = "Your reaction: " + chosen + " · select it again to remove"
+		}
+
+		if a.status != "" && a.status != "Reaction updated" {
+			reactionPrompt = a.status
+		}
+
+		if a.pending == "react" {
+			reactionPrompt = "Saving reactions…"
+		}
+
+		if a.reactionPickerOpen {
+			keys = "↑↓ Enter Tab Esc"
+			if cols >= 55 && tui.ImageGraphics() {
+				keys += "  Ctrl+O preview icon"
+			}
+		} else if cols >= 55 {
+			reactionPrompt, keys = tui.ReactionFooter(reactionPrompt, cols-12, a.textReactions, telegramQuickReactions)
+			keys += "  Tab more"
+		} else {
+			reactionPrompt, keys = tui.ReactionFooter(reactionPrompt, cols-2, a.textReactions, telegramQuickReactions)
 		}
 	}
 
@@ -249,38 +239,155 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		keys = "Waiting for Telegram…  Ctrl+C quit"
 	}
 
+	deletePrompt := ""
+	if len(a.confirmDelete) > 0 {
+		deletePrompt, keys = tui.DeleteConfirmation(len(a.confirmDelete), a.deleteForEveryone).Footer(cols - 2)
+	}
+
 	colors := a.palette()
+	dialogTitle, dialogHint, dialogStatus := "", "", ""
+	dialogIndex := 0
+
+	var choices []string
+
+	if dialog := a.reactionAuthors; dialog != nil {
+		dialogTitle, dialogHint = tui.ReactionAuthorsTitle, tui.ReactionAuthorsHint
+		choices, dialogIndex, dialogStatus = dialog.Rows, dialog.Selected, dialog.Status
+	} else if a.attachmentTitle != "" {
+		dialogTitle, dialogHint, dialogIndex, dialogStatus = a.attachmentTitle, tui.OpenAttachmentHint, a.attachmentIndex, a.status
+		if dialogTitle == tui.DraftAttachmentsTitle {
+			dialogHint = tui.DraftAttachmentListHint(len(a.attachmentChoices))
+		} else if a.pending == "download" {
+			dialogStatus = "Opening…"
+		}
+
+		choices = make([]string, len(a.attachmentChoices))
+		for i, item := range a.attachmentChoices {
+			choices[i] = item.label
+		}
+	}
+
+	if a.textAttachmentPrompt != nil || a.filePicker != nil || dialogTitle != "" {
+		row := 1
+
+		render := func(text string, title, selected, hint bool) {
+			switch {
+			case title:
+				b.WriteString(colors.heading)
+			case selected:
+				b.WriteString(colors.selected)
+			case hint:
+				b.WriteString(colors.muted)
+			}
+
+			label(3, row, cols-4, text)
+			b.WriteString("\x1b[0m")
+
+			row++
+		}
+		if a.textAttachmentPrompt != nil {
+			a.textAttachmentPrompt.Render(cols-4, render)
+		} else if a.filePicker != nil {
+			a.filePicker.Render(cols-4, rows, render)
+		} else {
+			tui.ListDialog(dialogTitle, choices, dialogIndex, cols-4, rows, dialogStatus, dialogHint, render)
+		}
+
+		_, err := io.WriteString(w, b.String())
+
+		return err
+	}
+
 	b.WriteString(colors.muted)
 	label(2, rows, cols-2, keys)
 	b.WriteString("\x1b[0m")
 
 	statusRow := rows - 2
+	historyBottom := statusRow
+
+	sidebarWidth := 0
+	if a.open {
+		sidebarWidth = tui.SidebarWidth(cols, a.layoutSettings.SidebarWidth)
+	}
+
+	composerLeft := 1
+	if sidebarWidth > 0 {
+		composerLeft = sidebarWidth + 2
+	}
+
+	composerWidth := cols - composerLeft + 1
+	draftX := composerLeft + tui.ComposerIndent
+	draftWidth := tui.ComposerTextWidth(composerWidth)
 
 	var draftLines []string
 
-	draftPrompt, draftX := "", 0
+	composerLabel, draftTop := "Message", 0
+	attachmentLine, attachmentRows := "", 0
 	cursorRow, cursorX := 0, 0
+	emptyDraft := false
+	showComposer := a.ready && a.open && !a.searching
 
-	if a.composing {
-		draftPrompt = "Message > "
-		if a.editID != 0 {
-			draftPrompt = "Edit > "
-		} else if a.staged != nil {
-			draftPrompt = "Caption > "
+	if showComposer {
+		saved := a.composerDraft()
+		if !a.composing {
+			if paused, ok := a.drafts[a.draftPosition()]; ok {
+				saved = paused
+			}
 		}
 
-		draftX = 2 + len(draftPrompt)
-		draft := strings.ReplaceAll(string(a.draft), "\t", "    ")
-		draftLines = wrap(draft, cols-draftX, len(draft)+1)
-		before := strings.ReplaceAll(string(a.draft[:a.draftCursor]), "\t", "    ")
-		cursorLines := wrap(before, cols-draftX, len(before)+1)
-		cursorLine := len(cursorLines) - 1
-		height := min(6, rows/3)
-		start := max(0, min(cursorLine, len(draftLines)-height))
-		draftLines = draftLines[start:min(len(draftLines), start+height)]
-		statusRow = rows - 1 - len(draftLines)
-		cursorRow = statusRow + 1 + cursorLine - start
-		cursorX = draftX + uniseg.StringWidth(cursorLines[cursorLine])
+		if saved.editID != 0 {
+			composerLabel = "Edit"
+		} else if saved.upload != nil {
+			composerLabel = "Caption"
+		} else if saved.replyID != 0 || a.thread != nil {
+			composerLabel = "Reply"
+		}
+
+		if saved.upload != nil {
+			attachmentLine = saved.attachmentLabel() + "  [Ctrl+O]"
+			attachmentRows = 1
+		}
+
+		draft := strings.ReplaceAll(saved.text, "\t", "    ")
+
+		height := max(1, min(tui.ComposerLineLimit(rows), rows-6)-attachmentRows)
+		if a.reactionPickerOpen {
+			height = 1
+		}
+
+		if a.composing {
+			draftLines = tui.Wrap(draft, draftWidth, 0)
+			before := strings.ReplaceAll(string(a.draft[:a.draftCursor]), "\t", "    ")
+			cursorLines := tui.Wrap(before, draftWidth, 0)
+			cursorLine := len(cursorLines) - 1
+			start := max(0, min(cursorLine, len(draftLines)-height))
+			draftLines = draftLines[start:min(len(draftLines), start+height)]
+			cursorRow = cursorLine - start
+			cursorX = draftX + uniseg.StringWidth(cursorLines[cursorLine])
+		} else {
+			if draft == "" {
+				emptyDraft = true
+				draft = "i write"
+			}
+
+			draftLines = tui.Wrap(draft, draftWidth, height)
+		}
+
+		statusRow = rows - 1
+		if reactionSuggestion != "" {
+			statusRow--
+		}
+
+		if a.reactionPickerOpen {
+			statusRow -= min(5, rows-6)
+			if attachmentRows > 0 {
+				statusRow++
+			}
+		}
+
+		draftTop = statusRow - len(draftLines)
+		historyBottom = draftTop - 1 - attachmentRows
+		cursorRow += draftTop
 	}
 
 	if !a.ready {
@@ -293,7 +400,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 
 			width := uniseg.StringWidth(lines[0])
 			if width > cols-2 || len(lines) > rows-3 {
-				for i, line := range wrap("Enlarge the terminal for the QR code, or run telega --phone.", cols-2, rows-5) {
+				for i, line := range tui.Wrap("Enlarge the terminal for the QR code, or run telega --phone.", cols-2, rows-5) {
 					label(2, i+3, cols-2, line)
 				}
 			} else {
@@ -308,14 +415,19 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			}
 		}
 	} else {
-		wide := cols >= 64
+		wide := sidebarWidth > 0
 
 		sidebar := cols - 1
 		if wide {
-			sidebar = min(cols/3, 30)
-			for y := 1; y < rows-2; y++ {
+			sidebar = sidebarWidth + 1
+
+			b.WriteString(colors.muted)
+
+			for y := 1; y <= rows-2; y++ {
 				label(sidebar, y, 1, "│")
 			}
+
+			b.WriteString("\x1b[0m")
 		}
 
 		if wide || !a.open {
@@ -346,22 +458,24 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 				c := a.chats[i]
 				badge := c.unread.badge()
 				badgeWidth := uniseg.StringWidth(badge)
-				width := sidebar - 11 // Space for the mark, padding and a badge up to 999+@.
+				badgeX := sidebar - 1 - badgeWidth
 
-				name := c.title
-				if uniseg.StringWidth(name) > width {
-					name = wrap(name, width-1, 1)[0] + "…"
+				width := sidebar - 4
+				if badgeWidth > 0 {
+					width = badgeX - 5 // Leave a blank column before the badge.
 				}
+
+				name := tui.Clip(c.title, width)
 
 				label(2, y, 1, marker)
 				label(4, y, width, name)
 
 				if badge != "" {
 					if i != a.selected {
-						b.WriteString("\x1b[36m")
+						b.WriteString(colors.badge)
 					}
 
-					label(sidebar-1-badgeWidth, y, badgeWidth, badge)
+					label(badgeX, y, badgeWidth, badge)
 				}
 
 				if i == a.selected || badge != "" {
@@ -380,12 +494,7 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		}
 
 		if a.open {
-			left := 2
-			if wide {
-				left = sidebar + 2
-			}
-
-			a.paintConversation(&b, label, left, cols, statusRow)
+			a.paintConversation(&b, label, composerLeft+1, cols, historyBottom)
 		}
 	}
 
@@ -417,62 +526,30 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		return err
 	}
 
-	if a.pickingReaction {
-		status = "Choose a reaction · select it again to remove"
-
-		if len(a.log) > 0 && a.log[a.offset].myReaction != "" {
-			chosen := a.log[a.offset].myReaction
-			if a.textReactions {
-				chosen = reactionName(chosen)
-			}
-
-			status = "Your reaction: " + chosen + " · select it again to remove"
-		}
+	if reactionPrompt != "" {
+		status = reactionPrompt
 	}
 
-	if a.noticeStatus != "" && !a.pickingReaction && a.pending == "" && len(a.confirmDelete) == 0 {
+	if a.noticeStatus != "" && !retryingSend && !a.pickingReaction && a.pending == "" && len(a.confirmDelete) == 0 {
 		status = a.noticeStatus
 		a.noticeStatusVisible = true
 	}
 
-	if len(a.confirmDelete) > 0 {
-		scope := "for you"
-		if a.deleteForEveryone {
-			scope = "for everyone"
-		}
-
-		status = fmt.Sprintf("Delete %d message(s) %s? [y/Esc]", len(a.confirmDelete), scope)
+	if deletePrompt != "" {
+		status = deletePrompt
 	}
 
-	if (a.composing || a.imagePath) && a.replyID != 0 {
+	if a.composing && a.replyID != 0 {
 		reply := "Replying to: " + a.replyPreview
 		if status == "" {
 			status = reply
 		}
 	}
 
-	if a.composing && a.staged != nil {
-		name := filepath.Base(a.staged.path)
-		if a.staged.temporary {
-			name = "Screenshot.png"
-		}
-
-		if a.status == "" {
-			if status != "" {
-				name += " / " + status
-			}
-
-			status = "Photo: " + name
-			if a.asFile || a.staged.format == "" || a.staged.format == "gif" {
-				status = "File: " + name
-			}
-		}
-	}
-
 	if status == "" {
 		switch a.pending {
 		case "":
-			if a.open && !a.composing && !a.imagePath && !a.searching {
+			if a.open && !a.composing && !a.searching {
 				status = a.messageJumpHints()
 			}
 		case "connect", "reconnect":
@@ -483,9 +560,11 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			status = "Loading…"
 		case "searchHistory":
 			status = "Searching…"
+		case "send":
+			status = "Sending…"
 		case "download":
-			status = "Downloading attachment…"
-		case "image", "file", "clipboard", "screenshot":
+			status = "Opening attachment…"
+		case "clipboard", "screenshot":
 			status = "Preparing attachment…"
 		case "deleteMessages":
 			status = "Deleting messages…"
@@ -495,11 +574,17 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if !a.ready && a.qr == "" && a.pending == "" {
-		for i, line := range wrap(status, cols-4, rows-5) {
+		for i, line := range tui.Wrap(status, cols-4, rows-5) {
 			label(2, i+4, cols-4, line)
 		}
+	} else if a.reactionPickerOpen {
+		a.paintReactionPicker(label, statusRow, rows, cols)
 	} else {
 		label(2, statusRow, cols-2, status)
+
+		if reactionSuggestion != "" {
+			label(2, rows-1, cols-2, reactionSuggestion)
+		}
 	}
 
 	prompt, masked := "", false
@@ -508,25 +593,41 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 		if a.historySearch {
 			prompt = "Search history"
 		}
-	} else if a.imagePath {
-		prompt = "Image path"
-		if a.filePath {
-			prompt = "File path"
-		}
 	} else if a.pending == "" {
 		prompt, masked = a.prompt, a.masked
 	}
 
-	if a.composing {
-		label(2, statusRow+1, cols-4, draftPrompt)
+	if showComposer {
+		b.WriteString(colors.muted)
+		label(composerLeft, historyBottom, composerWidth, tui.ComposerRule(composerLabel, composerWidth))
+		b.WriteString("\x1b[0m")
 
-		for i, line := range draftLines {
-			label(draftX, statusRow+1+i, cols-draftX, line)
+		if attachmentLine != "" {
+			b.WriteString(colors.attachment)
+			label(draftX, draftTop-1, draftWidth, attachmentLine)
+			b.WriteString("\x1b[0m")
 		}
 
-		fmt.Fprintf(&b, "\x1b[%d;%dH\x1b[?25h", cursorRow, cursorX)
+		for i, line := range draftLines {
+			y := draftTop + i
+			switch {
+			case a.composing && y == cursorRow && colors.draftRow != "":
+				label(composerLeft, y, composerWidth-1, "")
+				b.WriteString(colors.draftRow)
+				b.WriteString(strings.Repeat(" ", composerWidth-1))
+			case emptyDraft:
+				b.WriteString(colors.muted)
+			}
+
+			label(draftX, y, draftWidth, line)
+			b.WriteString("\x1b[0m")
+		}
+
+		if a.composing {
+			fmt.Fprintf(&b, "\x1b[%d;%dH\x1b[?25h", cursorRow, cursorX)
+		}
 	} else if prompt != "" {
-		prefix := wrap(prompt+" > ", cols-4, 1)[0]
+		prefix := tui.Wrap(prompt+" > ", cols-4, 1)[0]
 		label(2, rows-1, cols-4, prefix)
 		x := 2 + uniseg.StringWidth(prefix)
 		space := cols - x

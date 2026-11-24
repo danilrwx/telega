@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"io"
 	"mime"
 	"os"
@@ -15,15 +12,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danilrwx/telega/tui"
+
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+
 	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 	"golang.org/x/sys/unix"
 )
 
 type uploadAttachment struct {
-	path, format string
-	temporary    bool
-	original     os.FileInfo
+	path, format       string
+	temporary, managed bool
+	changed            bool
+	original           os.FileInfo
 }
 
 func openRegularFile(path string) (*os.File, error) {
@@ -67,56 +71,39 @@ func openImage(path string) (*os.File, string, error) {
 }
 
 func stageAttachment(ctx context.Context, req request, scratch string) (*uploadAttachment, error) {
-	path := strings.TrimSpace(req.text)
-
-	temporary := req.kind != "image" && req.kind != "file"
-	if temporary {
-		var err error
-
-		path, err = screenshot(ctx, scratch, req.kind == "screenshot")
-		if err != nil {
-			return nil, err
-		}
-	} else if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-
-		path = filepath.Join(home, path[2:])
-	}
-
-	var (
-		f      *os.File
-		err    error
-		format string
-	)
-	if req.kind == "file" {
-		f, err = openRegularFile(path)
-	} else {
-		f, format, err = openImage(path)
-	}
-
+	path, err := screenshot(ctx, scratch, req.kind == "screenshot")
 	if err != nil {
-		if temporary {
-			_ = os.Remove(path)
-		}
+		return nil, err
+	}
+	defer func() { _ = os.Remove(path) }()
 
+	source, err := openRegularFile(path)
+	if err != nil {
 		return nil, err
 	}
 
-	original, err := f.Stat()
-	_ = f.Close()
+	defer func() { _ = source.Close() }()
 
+	copyPath, err := tui.CopyDraftAttachment("telega", "Screenshot.png", source)
 	if err != nil {
-		if temporary {
-			_ = os.Remove(path)
-		}
-
 		return nil, err
 	}
 
-	return &uploadAttachment{path: path, format: format, temporary: temporary, original: original}, nil
+	file, format, err := openImage(copyPath)
+	if err != nil {
+		tui.RemoveDraftAttachment("telega", copyPath)
+		return nil, err
+	}
+
+	info, err := file.Stat()
+	_ = file.Close()
+
+	if err != nil {
+		tui.RemoveDraftAttachment("telega", copyPath)
+		return nil, err
+	}
+
+	return &uploadAttachment{path: copyPath, format: format, temporary: true, managed: true, original: info}, nil
 }
 
 func screenshot(ctx context.Context, scratch string, region bool) (string, error) {
@@ -142,13 +129,7 @@ func screenshot(ctx context.Context, scratch string, region bool) (string, error
 
 		commands = append(commands, exec.CommandContext(ctx, "grim", "-g", strings.TrimSpace(string(geometry)), "-t", "png", "-"))
 	} else {
-		if os.Getenv("WAYLAND_DISPLAY") != "" {
-			commands = append(commands, exec.CommandContext(ctx, "wl-paste", "--no-newline", "--type", "image/png"))
-		}
-
-		if os.Getenv("DISPLAY") != "" {
-			commands = append(commands, exec.CommandContext(ctx, "xclip", "-selection", "clipboard", "-t", "image/png", "-o"))
-		}
+		commands = tui.ClipboardCommands(ctx, "image/png")
 
 		if len(commands) == 0 {
 			return "", errors.New("no desktop clipboard; use a to attach an image file")
@@ -180,37 +161,56 @@ func screenshot(ctx context.Context, scratch string, region bool) (string, error
 	return "", errors.New("no PNG image in clipboard")
 }
 
-func (a *app) discardAttachment() {
-	if a.staged != nil && a.staged.temporary {
-		_ = os.Remove(a.staged.path)
+func (f *uploadAttachment) discard() {
+	if f.managed {
+		tui.RemoveDraftAttachment("telega", f.path)
+	} else if f.temporary {
+		_ = os.Remove(f.path)
 	}
-
-	a.staged = nil
 }
 
-func (a *app) attachmentInput(k key, out chan<- request) {
-	switch k.name {
-	case "escape":
-		a.imagePath = false
-		a.clearDraft()
-		a.clearReply()
-	case "enter":
-		if path := strings.TrimSpace(string(a.draft)); path != "" {
-			kind := "image"
-			if a.filePath {
-				kind = "file"
-			}
-
-			a.ask(out, request{kind: kind, text: path, chat: a.currentChat()})
-			a.imagePath = false
-		}
-	default:
-		a.edit(k)
+func (a *app) discardAttachment() {
+	if a.staged != nil {
+		a.staged.discard()
 	}
+
+	for _, item := range a.moreUploads {
+		item.upload.discard()
+	}
+
+	a.staged, a.moreUploads = nil, nil
+}
+
+func localUpload(path string, forceFile bool) (*uploadAttachment, error) {
+	file, err := openRegularFile(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	if info.Size() == 0 {
+		return nil, errors.New("choose a non-empty regular file")
+	}
+
+	upload := &uploadAttachment{path: path, original: info}
+	if !forceFile {
+		_, upload.format, _ = image.DecodeConfig(file)
+	}
+
+	return upload, nil
 }
 
 func sendAttachment(ctx context.Context, api *tg.Client, req request, caption string, entities []tg.MessageEntityClass) (tg.UpdatesClass, error) {
 	upload := req.upload
+	if upload.changed {
+		return nil, errors.New("attachment changed after selection")
+	}
+
 	document := req.asFile || upload.format == "" || upload.format == "gif"
 
 	var (

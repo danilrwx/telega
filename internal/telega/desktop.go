@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"os"
 	"os/exec"
@@ -14,17 +15,23 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/danilrwx/telega/tui"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/downloader/fileref"
 	"github.com/gotd/td/tg"
 )
 
 type attachment struct {
-	name     string
-	kind     string
-	dc       int
-	size     int64
-	location tg.InputFileLocationClass
+	name          string
+	kind          string
+	dc            int
+	size          int64
+	duration      int
+	width, height int
+	location      tg.InputFileLocationClass
+	mime          string
+	thumbnail     *attachment
+	inlineData    []byte
 }
 
 func fileFromMedia(media tg.MessageMediaClass) *attachment {
@@ -35,21 +42,36 @@ func fileFromMedia(media tg.MessageMediaClass) *attachment {
 			return nil
 		}
 
-		file := &attachment{dc: doc.DCID, size: doc.Size, location: doc.AsInputDocumentFileLocation("")}
-		if strings.HasPrefix(doc.MimeType, "video/") {
+		file := &attachment{dc: doc.DCID, size: doc.Size, location: doc.AsInputDocumentFileLocation(""), mime: doc.MimeType}
+		if media.Video || media.Round || strings.HasPrefix(doc.MimeType, "video/") {
 			file.kind = "Video"
 		}
 
 		for _, attr := range doc.Attributes {
-			if name, ok := attr.(*tg.DocumentAttributeFilename); ok && name.FileName != "" {
-				file.name = fileName(name.FileName)
-				return file
+			switch attr := attr.(type) {
+			case *tg.DocumentAttributeFilename:
+				if attr.FileName != "" {
+					file.name = fileName(attr.FileName)
+				}
+			case *tg.DocumentAttributeVideo:
+				file.kind, file.width, file.height = "Video", attr.W, attr.H
+				if attr.Duration > 0 {
+					file.duration = int(min(math.Ceil(attr.Duration), math.MaxInt32))
+				}
 			}
 		}
 
-		file.name = "attachment"
-		if ext, _ := mime.ExtensionsByType(doc.MimeType); len(ext) > 0 {
-			file.name += ext[0]
+		if file.name == "" {
+			file.name = "attachment"
+			if ext, _ := mime.ExtensionsByType(doc.MimeType); len(ext) > 0 {
+				file.name += ext[0]
+			}
+		}
+
+		if tui.InlineImageFile(file.name, file.mime) {
+			file.thumbnail = stillThumbnail(doc.Thumbs, func(kind string) tg.InputFileLocationClass {
+				return doc.AsInputDocumentFileLocation(kind)
+			}, doc.DCID)
 		}
 
 		return file
@@ -81,6 +103,9 @@ func fileFromMedia(media tg.MessageMediaClass) *attachment {
 			return &attachment{
 				name: "photo.jpg", kind: "Photo", dc: photo.DCID, size: int64(size),
 				location: photo.AsInputPhotoFileLocation(kind),
+				thumbnail: stillThumbnail(photo.Sizes, func(kind string) tg.InputFileLocationClass {
+					return photo.AsInputPhotoFileLocation(kind)
+				}, photo.DCID),
 			}
 		}
 	}
@@ -106,67 +131,134 @@ func fileName(name string) string {
 	return name
 }
 
-func downloadAttachment(ctx context.Context, client *telegram.Client, req request) (string, error) {
-	file := req.attachment
+func (file *attachment) videoDetails() string {
+	var parts []string
+
+	if file.duration > 0 {
+		hours, minutes, seconds := file.duration/3600, file.duration/60%60, file.duration%60
+		if hours > 0 {
+			parts = append(parts, fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d:%02d", minutes, seconds))
+		}
+	}
+
+	switch {
+	case file.size >= 1<<30:
+		parts = append(parts, fmt.Sprintf("%.1f GiB", float64(file.size)/(1<<30)))
+	case file.size >= 1<<20:
+		parts = append(parts, fmt.Sprintf("%.1f MiB", float64(file.size)/(1<<20)))
+	case file.size >= 1<<10:
+		parts = append(parts, fmt.Sprintf("%.1f KiB", float64(file.size)/(1<<10)))
+	case file.size > 0:
+		parts = append(parts, fmt.Sprintf("%d B", file.size))
+	}
+
+	if file.width > 0 && file.height > 0 {
+		parts = append(parts, fmt.Sprintf("%d×%d", file.width, file.height))
+	}
+
+	return strings.Join(parts, " · ")
+}
+
+func privateCacheDir(path string) error {
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return err
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+
+	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("%s must be a private directory", path)
+	}
+
+	return nil
+}
+
+func (file *attachment) cacheDownload(stream func(io.Writer) error) (string, error) {
+	var key string
+
+	switch location := file.location.(type) {
+	case *tg.InputDocumentFileLocation:
+		key = fmt.Sprintf("document-%d-%x", location.ID, location.ThumbSize)
+	case *tg.InputPhotoFileLocation:
+		key = fmt.Sprintf("photo-%d-%x", location.ID, location.ThumbSize)
+	default:
+		return "", errors.New("unsupported attachment")
+	}
 
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
 
-	cache = filepath.Join(cache, "telega", "attachments")
-	if err := os.MkdirAll(cache, 0o700); err != nil {
+	root := filepath.Join(cache, "telega", "attachments")
+	if err := privateCacheDir(root); err != nil {
 		return "", err
 	}
 
-	info, err := os.Lstat(cache)
+	dir := filepath.Join(root, key)
+	if err := privateCacheDir(dir); err != nil {
+		return "", err
+	}
+
+	path := filepath.Join(dir, fileName(file.name))
+	if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o077 == 0 &&
+		(file.size <= 0 || info.Size() == file.size) {
+		return path, nil
+	}
+
+	out, err := os.CreateTemp(dir, ".download-*")
 	if err != nil {
 		return "", err
 	}
 
-	if !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("%s must be a private directory", cache)
-	}
+	defer func() { _ = os.Remove(out.Name()) }()
 
-	dir, err := os.MkdirTemp(cache, "file-")
-	if err != nil {
+	if err := errors.Join(stream(out), out.Close()); err != nil {
 		return "", err
 	}
 
-	keep := false
-	defer func() {
-		if !keep {
-			_ = os.RemoveAll(dir)
-		}
-	}()
-
-	path := filepath.Join(dir, file.name)
-
-	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return "", err
-	}
-
-	invoker, err := client.FileDC(ctx, file.dc)
-	if err != nil {
-		_ = out.Close()
-		return "", err
-	}
-
-	builder := client.DownloadVia(invoker, file.location).
-		WithRefresh(fileref.Message(client.API(), req.chat.input, req.anchor, file.location))
 	if file.size > 0 {
-		builder.WithSize(file.size)
+		info, err := os.Stat(out.Name())
+		if err != nil {
+			return "", err
+		}
+
+		if info.Size() != file.size {
+			return "", fmt.Errorf("incomplete attachment: got %d of %d bytes", info.Size(), file.size)
+		}
 	}
 
-	_, err = builder.Stream(ctx, out)
-	if err := errors.Join(err, out.Close()); err != nil {
+	if err := os.Rename(out.Name(), path); err != nil {
 		return "", err
 	}
-
-	keep = true
 
 	return path, nil
+}
+
+func downloadAttachment(ctx context.Context, client *telegram.Client, req request) (string, error) {
+	file := req.attachment
+
+	return file.cacheDownload(func(out io.Writer) error {
+		invoker, err := client.FileDC(ctx, file.dc)
+		if err != nil {
+			return err
+		}
+
+		builder := client.DownloadVia(invoker, file.location).
+			WithRefresh(fileref.Message(client.API(), req.chat.input, req.anchor, file.location))
+		if file.size > 0 {
+			builder.WithSize(file.size)
+		}
+
+		_, err = builder.Stream(ctx, out)
+
+		return err
+	})
 }
 
 func openAttachment(path string) (*exec.Cmd, error) {

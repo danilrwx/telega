@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/danilrwx/telega/tui"
 	"github.com/gotd/td/tg"
 	"github.com/rivo/uniseg"
 )
@@ -86,7 +87,11 @@ func (a *app) beginReply(image bool) {
 	a.replyID, a.replyTopic, a.replyPreview = msg.id, msg.reply.topic, messageExcerpt(msg, a.revealID)
 	a.status = ""
 	a.clearDraft()
-	a.composing, a.imagePath, a.filePath = !image, image, false
+
+	a.composing = true
+	if image {
+		a.beginAttachment(false)
+	}
 }
 
 func (a *app) clearReply() {
@@ -96,7 +101,7 @@ func (a *app) clearReply() {
 func (a *app) messageJumpHints() string {
 	var hints []string
 	if len(a.jumps) > a.threadJumpBase || a.thread != nil {
-		hints = append(hints, "Ctrl+O go back")
+		hints = append(hints, "H go back")
 	}
 
 	if len(a.log) > 0 {
@@ -180,28 +185,27 @@ func (a *app) messageLines(msg message, width, limit int) []string {
 		}
 
 		label += "Forwarded from " + a.forwardName(msg.forward)
-		headers = append(headers, "\x1b[36m"+wrap(label, width, 1)[0]+"\x1b[0m")
+		headers = append(headers, "\x1b[36m"+tui.Wrap(label, width, 1)[0]+"\x1b[0m")
 	}
 
 	if msg.reply.id != 0 && limit-len(headers) > 1 {
-		headers = append(headers, "\x1b[36m"+wrap(a.replyLabel(msg.reply, width), width, 1)[0]+"\x1b[0m")
+		headers = append(headers, "\x1b[36m"+tui.Wrap(a.replyLabel(msg.reply, width), width, 1)[0]+"\x1b[0m")
+	}
+
+	var thumbnail []string
+
+	if key, _ := inlineAttachment(msg.attachment); key != "" {
+		if image := a.inlineImages.Get(key); image != nil && image.Width <= width && len(image.Rows) < limit-len(headers) {
+			thumbnail = image.Rows
+			limit -= len(thumbnail)
+		}
 	}
 
 	lines := append(headers, formattedMessage(msg, width, limit-len(headers), a.revealID == msg.id, a.palette())...)
+
+	lines = append(lines, thumbnail...)
 	if showReactions {
-		reactions, prefix := msg.reactions, "↳ "
-		if a.textReactions {
-			reactions, prefix = textReactionSummary(reactions), "  "
-		}
-
-		summary := wrap(prefix+reactions, width, 2)
-		line := summary[0]
-
-		if len(summary) == 2 && width > 1 {
-			line = strings.TrimRight(wrap(line, width-1, 1)[0], " ") + "…"
-		}
-
-		lines = append(lines, "\x1b[33m"+line+"\x1b[0m")
+		lines = append(lines, a.palette().reaction+a.inlineReactionLine(msg, width)+"\x1b[0m")
 	}
 
 	return lines

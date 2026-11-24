@@ -104,7 +104,7 @@ func loadDialogPage(ctx context.Context, api *tg.Client, page dialogPage) ([]cha
 			c.title = "Deleted account"
 		}
 
-		c.unread = dialogUnread(d)
+		c.unread, c.readOutboxID = dialogUnread(d), d.ReadOutboxMaxID
 		chats = append(chats, c)
 
 		if date := dates[chatPosition{chat: c.key, id: d.TopMessage}]; !d.Pinned && date > 0 {
@@ -143,7 +143,19 @@ func (a *app) receiveDialogs(out chan<- request, e serverEvent) {
 		selected = max(0, slices.IndexFunc(e.chats, func(c chat) bool { return c.key == id }))
 	}
 
+	for i := range a.chats {
+		old := a.chats[i]
+		if old.readOutboxID == 0 {
+			continue
+		}
+
+		if j := slices.IndexFunc(e.chats, func(c chat) bool { return c.key == old.key }); j >= 0 {
+			e.chats[j].readOutboxID = max(e.chats[j].readOutboxID, old.readOutboxID)
+		}
+	}
+
 	a.chats, a.selected, a.dialogPage = e.chats, selected, e.page
+	a.dialogsLoaded = true
 
 	a.status = e.text
 	if a.resumeChat.id != 0 {

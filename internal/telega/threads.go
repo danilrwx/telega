@@ -95,6 +95,7 @@ func loadTopics(ctx context.Context, api *tg.Client, req request) ([]chat, topic
 		item.title = limitText(topic.Title, 128)
 		item.threadKind, item.threadID, item.threadClosed = forumThread, topic.ID, topic.Closed
 		item.unread = unreadState{count: topic.UnreadCount, mentions: topic.UnreadMentionsCount, inboxID: topic.ReadInboxMaxID, topID: topic.TopMessage}
+		item.readOutboxID = topic.ReadOutboxMaxID
 		list = append(list, item)
 	}
 
@@ -132,6 +133,8 @@ func loadDiscussion(ctx context.Context, api *tg.Client, req request) (*chat, er
 	discussion.title = "Comments · " + req.chat.title
 	discussion.threadKind, discussion.threadID = commentThread, root.id
 	discussion.unread = unreadState{count: result.UnreadCount, inboxID: result.ReadInboxMaxID, topID: result.MaxID}
+
+	discussion.readOutboxID = result.ReadOutboxMaxID
 
 	return &discussion, nil
 }

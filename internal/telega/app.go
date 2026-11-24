@@ -1,18 +1,31 @@
 package telega
 
 import (
+	"context"
 	"fmt"
 	"slices"
+	"time"
+
+	"github.com/danilrwx/telega/tui"
 )
 
 type app struct {
 	demo, ready, open, composing, masked           bool
 	colors                                         *terminalPalette
-	textReactions                                  bool
+	inlineImages                                   *tui.InlineImages
+	inlineLoading                                  bool
+	layoutSettings                                 tui.LayoutSettings
+	textReactions, console                         bool
 	pending, prompt, status, qr                    string
 	draft                                          []rune
 	draftCursor                                    int
+	vimRequested                                   bool
+	draftStore                                     *tui.DraftStore
+	accountID                                      int64
+	loadedDraftKey                                 string
+	savedDraft                                     diskDraft
 	chats                                          []chat
+	dialogsLoaded                                  bool
 	dialogPage                                     dialogPage
 	dialogPrevious                                 []dialogCursor
 	thread, resumeThread                           *chat
@@ -29,6 +42,14 @@ type app struct {
 	noticeStatusVisible                            bool
 	recentReactionAlerts                           map[chatPosition]int
 	prefixG, searching, pickingReaction            bool
+	reactionTarget, reactionIndex                  int
+	reactionPickerOpen, reactionCatalogLoaded      bool
+	reactionSuggestionIndex                        int
+	reactionClosing                                bool
+	reactionAuthors                                *tui.ReactionAuthors
+	reactionQueue                                  []reactionChoice
+	reactionQuery                                  string
+	reactionCatalog                                []reactionChoice
 	search                                         []rune
 	chatQuery, messageQuery                        string
 	unreadOnly                                     bool
@@ -37,12 +58,26 @@ type app struct {
 	deleteForEveryone                              bool
 	linkChoices                                    []messageLink
 	linkIndex                                      int
+	attachmentChoices                              []attachmentChoice
+	attachmentTitle                                string
+	attachmentIndex                                int
 	openTarget                                     string
-	imagePath, filePath, asFile                    bool
+	openExternal                                   string
+	previewOnly                                    bool
+	imagePreview                                   *tui.TerminalImage
+	imagePreviewTitle                              string
+	imagePreviewPath                               string
+	asFile                                         bool
 	retrySend                                      *request
 	disconnected                                   bool
 	resumeChat                                     peerKey
 	staged                                         *uploadAttachment
+	moreUploads                                    []stagedAttachment
+	filePicker                                     *tui.FilePicker
+	textAttachmentPrompt                           *tui.TextAttachmentPrompt
+	editAttachmentName                             string
+	pickerFile, editAttachmentRequested            bool
+	editAttachmentIndex                            int
 	replyID, replyTopic                            int
 	replyPreview                                   string
 	imageFromCompose                               bool
@@ -59,8 +94,12 @@ type app struct {
 	authors                                        map[peerKey]string
 	authorLookup                                   bool
 	autoReadPending                                bool
+	autoReadVisible                                func() bool
 	lastAutoRead                                   chatPosition
 	historyRoom, prefetchAnchor                    int
+	historyDue                                     time.Time
+	historySeq                                     uint64
+	historyCancel                                  context.CancelFunc
 	prefetching                                    bool
 	jumps                                          []chatPosition
 	jumpOrigin                                     chatPosition
@@ -73,13 +112,35 @@ type app struct {
 }
 
 func (a *app) ask(out chan<- request, req request) {
+	if isChatHistory(req.kind) {
+		req = a.trackHistory(req)
+	}
+
 	out <- req
 
 	a.pending, a.status = req.kind, ""
 }
 
 func (a *app) receive(out chan<- request, e serverEvent) {
-	defer a.keepUnreadSelection()
+	if e.historyID != 0 {
+		if a.historyCancel == nil || e.historyID != a.historySeq {
+			return
+		}
+
+		a.cancelHistory()
+	}
+
+	defer func() {
+		a.keepUnreadSelection()
+
+		if a.pickingReaction && a.reactionTarget != 0 {
+			if i := slices.IndexFunc(a.log, func(msg message) bool { return msg.id == a.reactionTarget }); i >= 0 {
+				a.offset = i
+			} else {
+				a.closeReactionPicker()
+			}
+		}
+	}()
 
 	a.rememberAuthors(e.log)
 
@@ -90,6 +151,8 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 		a.qr, a.pending, a.prompt, a.status = e.text, "", "", ""
 	case "ready":
 		a.ready, a.prompt, a.qr, a.disconnected = true, "", "", false
+		a.dialogsLoaded = false
+		a.accountID = e.accountID
 		a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder, cursor: a.dialogPage.cursor}})
 	case "chats":
 		a.receiveDialogs(out, e)
@@ -176,10 +239,40 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 		}
 
 		a.imageFromCompose = false
-		a.staged, a.composing, a.pending, a.asFile = e.upload, true, "", false
+		a.addStaged(e.upload, false)
+		a.composing, a.pending = true, ""
 	case "send":
-		uploaded := a.staged != nil
+		if len(a.moreUploads) > 0 {
+			sent := a.replaceStaged(0, stagedAttachment{})
+			a.clearDraft()
+			a.retrySend = nil
+
+			a.composing, a.pending = true, ""
+			if a.persistDraft() {
+				sent.discard()
+			}
+
+			if a.inConversation(e) {
+				for _, msg := range e.log {
+					a.insert(msg, false)
+				}
+
+				a.offset = 0
+			}
+
+			a.submitDraft(out)
+
+			break
+		}
+
+		sent := a.staged
+		uploaded := sent != nil
+		a.staged = nil
 		a.clearComposer()
+
+		if a.persistDraft() && sent != nil {
+			sent.discard()
+		}
 
 		a.pending = ""
 		if a.inConversation(e) {
@@ -193,6 +286,15 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 				a.offset = 0
 			}
 		}
+	case "reactionAuthors":
+		if a.reactionAuthors != nil && a.reactionAuthors == e.reactionAuthors {
+			a.reactionAuthors.SetRows(e.reactionAuthorRows, e.text)
+		}
+	case "reactionCatalog":
+		a.pending = ""
+		if a.pickingReaction && a.currentChat().key == e.chat {
+			a.reactionCatalog, a.reactionCatalogLoaded = e.messageReactions, true
+		}
 	case "react", "reactions":
 		if e.kind == "react" {
 			a.pending = ""
@@ -201,14 +303,38 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 		if a.open && a.currentChat().key == e.chat {
 			if index := slices.IndexFunc(a.log, func(m message) bool { return m.id == e.anchor }); index >= 0 {
 				if e.kind == "react" {
-					a.log[index].myReaction = e.text
-					a.status = "Reaction updated"
+					a.status = e.hint
+					if e.hint == "" {
+						a.log[index].chosenReactions = e.chosenReactions
+
+						a.log[index].myReaction = ""
+						if n := len(e.chosenReactions); n > 0 {
+							a.log[index].myReaction = e.chosenReactions[n-1].emoji
+						}
+
+						a.status = "Reaction updated"
+					}
 				} else {
 					a.log[index].reactions, a.log[index].hasReactions = e.text, true
+
+					a.log[index].messageReactions = e.messageReactions
 					if e.reactionChoiceKnown {
+						a.log[index].chosenReactions = e.chosenReactions
 						a.log[index].myReaction = e.myReaction
 					}
 				}
+			}
+		}
+
+		if e.kind == "react" && a.pickingReaction {
+			if len(a.reactionQueue) > 0 {
+				choice := a.reactionQueue[0]
+				a.reactionQueue = a.reactionQueue[1:]
+				a.submitReaction(choice, out)
+			} else if a.reactionClosing {
+				a.closeReactionPicker()
+			} else if a.reactionPickerOpen && !a.reactionCatalogLoaded {
+				a.ask(out, request{kind: "reactionCatalog", chat: a.currentChat()})
 			}
 		}
 	case "new", "live":
@@ -235,6 +361,20 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 			} else if msg.id > a.log[0].id {
 				a.newerTrimmed = true
 			}
+		}
+	case "readOutbox":
+		if e.threadID != 0 {
+			if a.inConversation(e) && a.thread != nil {
+				a.thread.readOutboxID = max(a.thread.readOutboxID, e.anchor)
+			}
+
+			if i := slices.IndexFunc(a.topicEntries, func(c chat) bool {
+				return c.key == e.chat && c.threadID == e.threadID
+			}); i >= 0 {
+				a.topicEntries[i].readOutboxID = max(a.topicEntries[i].readOutboxID, e.anchor)
+			}
+		} else if i := slices.IndexFunc(a.chats, func(c chat) bool { return c.key == e.chat }); i >= 0 {
+			a.chats[i].readOutboxID = max(a.chats[i].readOutboxID, e.anchor)
 		}
 	case "read", "markRead", "autoRead", "unreadMark":
 		if e.kind == "autoRead" {
@@ -282,10 +422,16 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 			a.pending = ""
 			a.status = "Marked as read through the selected message"
 		}
-	case "download":
+	case "inlineImage":
+		a.inlineLoading = false
+		if a.inlineImages != nil {
+			a.inlineImages.Store(e.text, e.inlineImage)
+		}
+	case "download", "reactionImage":
 		a.pending = ""
-		a.status = "Downloaded: " + e.text
+		a.status = ""
 		a.openTarget = e.text
+		a.previewOnly = e.kind == "reactionImage"
 	case "deletedMessages":
 		if a.open && a.currentChat().key == e.chat {
 			a.removeMessages(e.ids)
@@ -309,13 +455,14 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 			}
 		}
 	case "error", "offline":
-		a.composing = a.composing || a.pending == "send" || a.pending == "edit" || a.imageFromCompose
+		failedSend := a.pending == "send"
+
+		a.composing = a.composing || failedSend || a.pending == "edit" || a.imageFromCompose
 		if a.pending == "history" && a.open && e.kind != "offline" {
 			a.restoreDraft()
 		}
 
 		a.imageFromCompose = false
-		a.imagePath = a.imagePath || a.pending == "image" || a.pending == "file"
 
 		a.status, a.pending = e.text, ""
 		if e.kind == "offline" {
@@ -330,8 +477,8 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 			a.confirmDelete, a.linkChoices, a.selection = nil, nil, nil
 			a.open = false
 			a.status = e.text
-		} else if a.retrySend != nil && a.composing {
-			a.status = "Send failed · Enter retries · " + e.text
+		} else if failedSend {
+			a.status = "Send failed · Enter retry · " + e.text
 		}
 	}
 }
@@ -343,6 +490,7 @@ func (a *app) replaceLoadedMessage(i int, msg message) {
 
 	if !msg.hasReactions {
 		msg.reactions, msg.hasReactions, msg.myReaction = a.log[i].reactions, a.log[i].hasReactions, a.log[i].myReaction
+		msg.chosenReactions, msg.messageReactions = a.log[i].chosenReactions, a.log[i].messageReactions
 	}
 
 	a.log[i] = msg

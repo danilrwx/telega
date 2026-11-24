@@ -3,10 +3,15 @@ package telega
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/danilrwx/telega/tui"
 
 	"github.com/gotd/td/tg"
 )
+
+var telegramQuickReactions = tui.ReactionOptions("🤣")
 
 func reactionSummary(reactions tg.MessageReactions) string {
 	if reactions.ReactionsAsTags {
@@ -83,6 +88,7 @@ func reactionUpdates(events chan<- serverEvent) tg.MessageReactionsHandler {
 		e := serverEvent{
 			kind: "reactions", chat: keyFor(update.Peer), anchor: update.MsgID, text: text,
 			myReaction: chosenReaction(update.Reactions), reactionChoiceKnown: !update.Reactions.Min,
+			chosenReactions: reactionChoices(update.Reactions, true), messageReactions: reactionChoices(update.Reactions, false),
 		}
 		e.source = notificationSource(e.chat, entities)
 		e.threadID = update.TopMsgID
@@ -112,8 +118,6 @@ func reactionUpdates(events chan<- serverEvent) tg.MessageReactionsHandler {
 	}
 }
 
-var quickReactions = [...]string{"👍", "❤", "🔥", "😂", "🎉", "👎"}
-
 func chosenReaction(reactions tg.MessageReactions) string {
 	for _, result := range reactions.Results {
 		emoji, ok := result.Reaction.(*tg.ReactionEmoji)
@@ -128,9 +132,13 @@ func chosenReaction(reactions tg.MessageReactions) string {
 func sendReaction(ctx context.Context, api *tg.Client, req request) (tg.UpdatesClass, error) {
 	query := &tg.MessagesSendReactionRequest{Peer: req.chat.input, MsgID: req.anchor}
 
-	var selection []tg.ReactionClass
-	if req.text != "" {
-		selection = append(selection, &tg.ReactionEmoji{Emoticon: req.text})
+	selection := make([]tg.ReactionClass, 0, len(req.reactions))
+	for _, choice := range req.reactions {
+		if choice.custom != 0 {
+			selection = append(selection, &tg.ReactionCustomEmoji{DocumentID: choice.custom})
+		} else {
+			selection = append(selection, &tg.ReactionEmoji{Emoticon: choice.emoji})
+		}
 	}
 
 	query.SetReaction(selection)
@@ -138,23 +146,103 @@ func sendReaction(ctx context.Context, api *tg.Client, req request) (tg.UpdatesC
 	return api.MessagesSendReaction(ctx, query)
 }
 
+func (a *app) reactionSuggestions() []reactionChoice {
+	msg, ok := a.reactionMessage()
+	if !ok {
+		return nil
+	}
+
+	var choices []reactionChoice
+
+	for _, choice := range msg.messageReactions {
+		if choice.count > 0 && !slices.ContainsFunc(msg.chosenReactions, choice.same) &&
+			(msg.myReaction == "" || !choice.same(reactionChoice{emoji: msg.myReaction})) {
+			choices = append(choices, choice)
+		}
+	}
+
+	return choices
+}
+
+func (a *app) reactionSuggestionRow(width int) string {
+	if !a.pickingReaction || a.reactionPickerOpen {
+		return ""
+	}
+
+	choices := a.reactionSuggestions()
+	if len(choices) == 0 {
+		return ""
+	}
+
+	index := min(a.reactionSuggestionIndex, len(choices)-1)
+	choice := choices[index]
+
+	label := choice.emoji
+	if choice.custom != 0 {
+		label = choice.title
+	} else if a.textReactions {
+		label = reactionName(label)
+	}
+
+	return tui.ReactionSuggestion(label, choice.count, index, len(choices), width)
+}
+
 func (a *app) pickReaction(k key, out chan<- request) {
-	if k.name == "escape" {
-		a.pickingReaction = false
+	if a.reactionClosing {
 		return
 	}
 
-	if k.name != "" || len(k.text) != 1 || k.text[0] < '1' || int(k.text[0]-'1') >= len(quickReactions) || len(a.log) == 0 {
+	switch k.name {
+	case "escape":
+		if a.pending == "react" && len(a.reactionQueue) > 0 {
+			a.reactionClosing = true
+		} else {
+			a.closeReactionPicker()
+		}
+
+		return
+	case "tab":
+		a.reactionPickerOpen = !a.reactionPickerOpen
+		if a.reactionPickerOpen {
+			a.reactionIndex, a.reactionQuery = 0, ""
+			if a.pending == "" && !a.reactionCatalogLoaded {
+				a.ask(out, request{kind: "reactionCatalog", chat: a.currentChat()})
+			}
+		}
+
 		return
 	}
 
-	msg := a.log[a.offset]
-
-	emoji := quickReactions[k.text[0]-'1']
-	if strings.TrimSuffix(emoji, "️") == strings.TrimSuffix(msg.myReaction, "️") {
-		emoji = ""
+	if a.reactionPickerOpen {
+		a.reactionPickerInput(k, out)
+		return
 	}
 
-	a.pickingReaction = false
-	a.ask(out, request{kind: "react", chat: a.currentChat(), anchor: msg.id, text: emoji})
+	switch k.name {
+	case "":
+		a.submitReaction(reactionChoice{emoji: tui.QuickReaction(k.text, telegramQuickReactions)}, out)
+	case "left", "right", "enter":
+		choices := a.reactionSuggestions()
+		if len(choices) == 0 {
+			return
+		}
+
+		index := min(a.reactionSuggestionIndex, len(choices)-1)
+
+		switch k.name {
+		case "left":
+			a.reactionSuggestionIndex = max(0, index-1)
+		case "right":
+			a.reactionSuggestionIndex = min(len(choices)-1, index+1)
+		case "enter":
+			if a.pending == "" {
+				a.submitReaction(choices[index], out)
+			}
+		}
+	}
+}
+
+func (a *app) closeReactionPicker() {
+	a.pickingReaction, a.reactionPickerOpen, a.reactionTarget = false, false, 0
+	a.reactionQueue, a.reactionClosing = nil, false
 }

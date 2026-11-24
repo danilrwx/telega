@@ -62,7 +62,8 @@ func TestUnreadChatFilter(t *testing.T) {
 func TestChatListSeparatesRowsAtMinimumWidth(t *testing.T) {
 	a := app{ready: true, chats: []chat{
 		{title: "Карманные компьютеры", unread: unreadState{count: 1200, mentions: 1}},
-		{title: "Лена"},
+		{title: "Организация проекта"},
+		{title: "Организация проекта", unread: unreadState{count: 1}},
 	}}
 
 	var screen bytes.Buffer
@@ -70,7 +71,10 @@ func TestChatListSeparatesRowsAtMinimumWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, part := range []string{"Tab Archive", "\x1b[2;2H\x1b[7m", "\x1b[2;2H›", "Карманные к…", "\x1b[2;17H999+@", "\x1b[3;2H╵"} {
+	for _, part := range []string{
+		"Tab Archive", "\x1b[2;2H\x1b[7m", "\x1b[2;2H›", "Карманные к…", "\x1b[2;17H999+@",
+		"\x1b[3;2H╵", "\x1b[3;4HОрганизация проекта", "\x1b[4;4HОрганизация про…", "\x1b[4;21H1",
+	} {
 		if !strings.Contains(screen.String(), part) {
 			t.Fatalf("chat list missing %q: %q", part, screen.String())
 		}
@@ -79,7 +83,7 @@ func TestChatListSeparatesRowsAtMinimumWidth(t *testing.T) {
 
 func TestDarkPaletteUsesANSIOnBasicTerminal(t *testing.T) {
 	for _, colorTerm := range []string{"", "truecolor", "24bit"} {
-		a := app{ready: true, colors: choosePalette("dark", colorTerm), chats: []chat{{title: "Ada"}}}
+		a := app{ready: true, colors: choosePalette(true, colorTerm), chats: []chat{{title: "Ada"}}}
 
 		var screen bytes.Buffer
 		if err := paint(&screen, &a, minTerminalCols, minTerminalRows); err != nil {

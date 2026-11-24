@@ -4,11 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
-	"os"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/danilrwx/telega/tui"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/auth/qrlogin"
 	"github.com/gotd/td/tg"
@@ -26,6 +27,7 @@ type chat struct {
 	title                   string
 	input                   tg.InputPeerClass
 	unread                  unreadState
+	readOutboxID            int
 }
 type peerKey struct {
 	kind byte
@@ -62,6 +64,7 @@ type message struct {
 	comments                                bool
 	commentCount                            int
 	reactions, myReaction                   string
+	chosenReactions, messageReactions       []reactionChoice
 	hasReactions                            bool
 }
 
@@ -80,6 +83,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 
 		return keyFor(msg.PeerID), message{
 			reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions,
+			chosenReactions: reactionChoices(reactions, true), messageReactions: reactionChoices(reactions, false),
 			comments: msg.Replies.Comments, commentCount: msg.Replies.Replies,
 			author: keyFor(msg.FromID), authorName: limitText(msg.PostAuthor, 80), protected: msg.Noforwards,
 			id: msg.ID, text: text, date: time.Unix(int64(msg.Date), 0), edited: msg.EditDate > 0 && !msg.EditHide,
@@ -92,6 +96,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 		return keyFor(msg.PeerID), message{
 			service: true, topicStart: topicStart, id: msg.ID, text: "[Service message]", date: time.Unix(int64(msg.Date), 0),
 			out: msg.Out, reply: replyInfo(msg.ReplyTo), reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions,
+			chosenReactions: reactionChoices(reactions, true), messageReactions: reactionChoices(reactions, false),
 		}, true
 	}
 
@@ -99,6 +104,8 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 }
 
 type request struct {
+	historyID           uint64
+	historyCtx          context.Context
 	page                dialogPage
 	topics              topicPage
 	author              peerKey
@@ -115,32 +122,42 @@ type request struct {
 	ids                 []int
 	revoke              bool
 	upload              *uploadAttachment
+	reactions           []reactionChoice
+	reactionDocument    int64
+	reactionAuthors     *tui.ReactionAuthors
+	textReactions       bool
 }
 
 type serverEvent struct {
-	page                          dialogPage
-	topics                        topicPage
-	thread                        *chat
-	threadID                      int
-	author                        peerKey
-	kind                          string
-	chat                          peerKey
-	chats                         []chat
-	log                           []message
-	ids                           []int
-	text                          string
-	hint                          string
-	masked                        bool
-	anchor, step                  int
-	reactionAt                    int
-	myReaction                    string
-	source                        chat
-	notice                        desktopNotice
-	reactionAuthor, reactionEmoji string
-	reactionActor                 peerKey
-	reactionChoiceKnown           bool
-	unread                        unreadState
-	upload                        *uploadAttachment
+	historyID                         uint64
+	accountID                         int64
+	page                              dialogPage
+	topics                            topicPage
+	thread                            *chat
+	threadID                          int
+	author                            peerKey
+	kind                              string
+	chat                              peerKey
+	chats                             []chat
+	log                               []message
+	ids                               []int
+	text                              string
+	hint                              string
+	masked                            bool
+	anchor, step                      int
+	reactionAt                        int
+	myReaction                        string
+	source                            chat
+	notice                            desktopNotice
+	reactionAuthor, reactionEmoji     string
+	reactionActor                     peerKey
+	reactionAuthors                   *tui.ReactionAuthors
+	reactionAuthorRows                []string
+	reactionChoiceKnown               bool
+	chosenReactions, messageReactions []reactionChoice
+	inlineImage                       *tui.InlineImage
+	unread                            unreadState
+	upload                            *uploadAttachment
 }
 
 func loadHistory(ctx context.Context, api *tg.Client, req request) ([]message, error) {
@@ -322,6 +339,17 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 			unread: unreadState{count: update.StillUnreadCount, inboxID: update.MaxID},
 		})
 	})
+	dispatch.OnReadHistoryOutbox(func(ctx context.Context, _ tg.Entities, update *tg.UpdateReadHistoryOutbox) error {
+		return emit(ctx, events, serverEvent{kind: "readOutbox", chat: keyFor(update.Peer), anchor: update.MaxID})
+	})
+	dispatch.OnReadChannelOutbox(func(ctx context.Context, _ tg.Entities, update *tg.UpdateReadChannelOutbox) error {
+		return emit(ctx, events, serverEvent{kind: "readOutbox", chat: peerKey{'c', update.ChannelID}, anchor: update.MaxID})
+	})
+	dispatch.OnReadChannelDiscussionOutbox(func(ctx context.Context, _ tg.Entities, update *tg.UpdateReadChannelDiscussionOutbox) error {
+		return emit(ctx, events, serverEvent{
+			kind: "readOutbox", chat: peerKey{'c', update.ChannelID}, threadID: update.TopMsgID, anchor: update.ReadMaxID,
+		})
+	})
 	dispatch.OnReadChannelInbox(func(ctx context.Context, _ tg.Entities, update *tg.UpdateReadChannelInbox) error {
 		return emit(ctx, events, serverEvent{
 			kind: "read", chat: peerKey{'c', update.ChannelID},
@@ -356,11 +384,19 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 			return err
 		}
 
-		if err := emit(ctx, events, serverEvent{kind: "ready"}); err != nil {
+		accountID, _, _ := client.SelfID()
+		if accountID == 0 {
+			if self, err := client.Self(ctx); err == nil {
+				accountID = self.ID
+			}
+		}
+
+		if err := emit(ctx, events, serverEvent{kind: "ready", accountID: accountID}); err != nil {
 			return err
 		}
 
 		api := client.API()
+		reactionLimit, premium := 0, false
 
 		notifyCtx, stopNotifications := context.WithCancel(ctx)
 		defer stopNotifications()
@@ -372,7 +408,7 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 			case <-ctx.Done():
 				return ctx.Err()
 			case req := <-requests:
-				value := serverEvent{kind: req.kind, chat: req.chat.key, threadID: req.chat.threadID, anchor: req.anchor, step: req.step}
+				value := serverEvent{kind: req.kind, chat: req.chat.key, threadID: req.chat.threadID, anchor: req.anchor, step: req.step, historyID: req.historyID}
 
 				var err error
 
@@ -385,7 +421,25 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 					value.page = req.page
 
 				case "history", "older", "newer", "latest", "jump", "jumpBack", "threadParent":
-					value.log, err = loadHistory(ctx, api, req)
+					if req.historyCtx == nil {
+						value.log, err = loadHistory(ctx, api, req)
+						break
+					}
+
+					if req.historyCtx.Err() != nil {
+						continue
+					}
+
+					loadCtx, cancel := context.WithCancel(ctx)
+					stop := context.AfterFunc(req.historyCtx, cancel)
+					value.log, err = loadHistory(loadCtx, api, req)
+
+					stop()
+					cancel()
+
+					if req.historyCtx.Err() != nil {
+						continue
+					}
 				case "topics":
 					value.topics = req.topics
 					value.chats, value.topics.next, err = loadTopics(ctx, api, req)
@@ -402,13 +456,47 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 					value.log, value.anchor, err = findUnread(ctx, api, req)
 				case "searchHistory":
 					value.log, err = searchHistory(ctx, api, req)
-				case "react":
+				case "reactionAuthors":
+					go func(req request, value serverEvent) {
+						value.reactionAuthors = req.reactionAuthors
+						value.reactionAuthorRows, value.text = fetchReactionAuthors(ctx, req, api.MessagesGetMessageReactionsList, api.MessagesGetCustomEmojiDocuments)
+						_ = emit(ctx, events, value)
+					}(req, value)
+
+					continue
+				case "react", "reactionCatalog":
+					if reactionLimit == 0 {
+						if self, selfErr := client.Self(ctx); selfErr == nil {
+							premium = self.Premium
+						}
+
+						reactionLimit = telegramReactionLimit(ctx, api, premium)
+					}
+
+					if req.kind == "reactionCatalog" {
+						value.messageReactions, err = loadReactionCatalog(ctx, api, req.chat.input, premium)
+						break
+					}
+
+					if excess := len(req.reactions) - reactionLimit; excess > 0 {
+						req.reactions = req.reactions[excess:]
+					}
+
 					var result tg.UpdatesClass
 
 					result, err = sendReaction(ctx, api, req)
+					if tgerr.Is(err, "REACTION_INVALID") {
+						err = errors.New("reaction rejected by Telegram for this message")
+					}
+
 					if err == nil {
-						value.text = req.text
 						err = dispatch.Handle(ctx, result)
+					}
+
+					if err == nil {
+						value.chosenReactions = req.reactions
+					} else {
+						value.hint, err = err.Error(), nil
 					}
 				case "edit":
 					value.log, err = editMessage(ctx, api, req)
@@ -423,7 +511,17 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 					value.text = req.to.title
 				case "download":
 					value.text, err = downloadAttachment(ctx, client, req)
-				case "image", "file", "clipboard", "screenshot":
+				case "reactionImage":
+					value.text, err = downloadReactionImage(ctx, client, req.reactionDocument)
+				case "inlineImage":
+					go func(req request, value serverEvent) {
+						value.text = req.text
+						value.inlineImage = fetchInlineImage(ctx, client, req)
+						_ = emit(ctx, events, value)
+					}(req, value)
+
+					continue
+				case "clipboard", "screenshot":
 					value.kind = "imageReady"
 					value.upload, err = stageAttachment(ctx, req, cfg.scratch)
 				case "deleteMessages":
@@ -452,12 +550,12 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 				}
 
 				if err != nil {
-					value = serverEvent{kind: "error", text: err.Error()}
+					value = serverEvent{kind: "error", text: err.Error(), historyID: req.historyID}
 				}
 
 				if err := emit(ctx, events, value); err != nil {
-					if value.upload != nil && value.upload.temporary {
-						_ = os.Remove(value.upload.path)
+					if value.upload != nil {
+						value.upload.discard()
 					}
 
 					return err

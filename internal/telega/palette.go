@@ -1,30 +1,56 @@
 package telega
 
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/danilrwx/telega/tui"
+)
+
 type terminalPalette struct {
 	heading, muted, selected, date, unread, outgoing, attachment, codeSGR string
+	rail, railMuted, badge, reaction                                      string
+	draftRow                                                              string
 }
 
 var standardPalette = terminalPalette{
 	heading: "\x1b[0m", muted: "\x1b[0m",
 	selected: "\x1b[7m", date: "\x1b[36m", unread: "\x1b[1m",
 	outgoing: "\x1b[1;36m", attachment: "\x1b[36m", codeSGR: "36",
+	rail: "\x1b[36m", railMuted: "\x1b[2m", badge: "\x1b[36m", reaction: "\x1b[33m",
 }
 
 var ansiDarkPalette = terminalPalette{
 	heading: "\x1b[1;35m", muted: "\x1b[2m",
 	selected: "\x1b[7m", date: "\x1b[1;36m", unread: "\x1b[1;33m",
 	outgoing: "\x1b[1;32m", attachment: "\x1b[35m", codeSGR: "36",
+	rail: "\x1b[36m", railMuted: "\x1b[2m", badge: "\x1b[1;33m", reaction: "\x1b[33m",
 }
 
-var pastelPalette = terminalPalette{
-	heading:    "\x1b[1;38;2;212;182;229m",
-	muted:      "\x1b[38;2;152;151;174m",
-	selected:   "\x1b[48;2;57;46;79;38;2;242;229;255m",
-	date:       "\x1b[38;2;168;186;242m",
-	unread:     "\x1b[1;38;2;232;205;154m",
-	outgoing:   "\x1b[1;38;2;161;216;207m",
-	attachment: "\x1b[38;2;212;182;229m",
-	codeSGR:    "38;2;168;186;242",
+var (
+	lightPalette = rgbPalette(false)
+	darkPalette  = rgbPalette(true)
+)
+
+func rgbPalette(dark bool) terminalPalette {
+	theme := tui.ThemeColors(dark)
+	sgr := func(params string) string { return "\x1b[" + params + "m" }
+
+	return terminalPalette{
+		heading:    sgr("1;" + theme.Heading.SGR(false)),
+		muted:      sgr(theme.Muted.SGR(false)),
+		selected:   sgr(theme.SelectionBackground.SGR(true) + ";" + theme.SelectionText.SGR(false)),
+		date:       sgr(theme.Date.SGR(false)),
+		unread:     sgr("1;" + theme.Unread.SGR(false)),
+		outgoing:   sgr("1;" + theme.Accent.SGR(false)),
+		attachment: sgr(theme.Heading.SGR(false)),
+		codeSGR:    theme.Date.SGR(false),
+		rail:       sgr(theme.Accent.SGR(false)),
+		railMuted:  sgr(theme.Muted.SGR(false)),
+		badge:      sgr("1;" + theme.Unread.SGR(false)),
+		reaction:   sgr(theme.Unread.SGR(false)),
+		draftRow:   sgr(theme.DraftBackground.SGR(true)),
+	}
 }
 
 func (a *app) palette() *terminalPalette {
@@ -35,14 +61,49 @@ func (a *app) palette() *terminalPalette {
 	return &standardPalette
 }
 
-func choosePalette(theme, colorTerm string) *terminalPalette {
-	if theme != "dark" {
-		return &standardPalette
-	}
-
+func choosePalette(dark bool, colorTerm string) *terminalPalette {
 	if colorTerm == "truecolor" || colorTerm == "24bit" {
-		return &pastelPalette
+		if dark {
+			return &darkPalette
+		}
+
+		return &lightPalette
 	}
 
-	return &ansiDarkPalette
+	if dark {
+		return &ansiDarkPalette
+	}
+
+	return &standardPalette
+}
+
+func (a *app) nicknameStyle(current chat, msg message) string {
+	peer := msg.author
+	if peer.id == 0 && current.key.kind == 'u' {
+		peer = current.key
+	}
+
+	identity := ""
+	if peer.id != 0 {
+		identity = string(peer.kind) + ":" + strconv.FormatInt(peer.id, 10)
+	} else if msg.authorName != "" {
+		identity = "byline:" + msg.authorName
+	}
+
+	if identity == "" {
+		return "\x1b[1m"
+	}
+
+	color := tui.ColorForNick(identity)
+
+	if !a.console {
+		switch a.palette() {
+		case &darkPalette:
+			return "\x1b[1;" + color.Dark.SGR(false) + "m"
+		case &lightPalette:
+			return "\x1b[1;" + color.Light.SGR(false) + "m"
+		}
+	}
+
+	return fmt.Sprintf("\x1b[1;%dm", color.ANSI)
 }

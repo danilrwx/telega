@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/danilrwx/telega/tui"
 )
 
 func (a *app) clearDraft() {
@@ -131,6 +133,18 @@ func (a *app) input(k key, out chan<- request) bool {
 		return false
 	}
 
+	if a.imagePreview != nil {
+		k = commandKey(k)
+		switch {
+		case k.name == "escape" || k.name == "enter" || k.text == "q":
+			a.imagePreview, a.imagePreviewPath = nil, ""
+		case k.name == "" && k.text == "o" && a.imagePreviewPath != "":
+			a.openExternal = a.imagePreviewPath
+		}
+
+		return true
+	}
+
 	if !a.ready {
 		if k.name == "escape" {
 			return false
@@ -148,6 +162,19 @@ func (a *app) input(k key, out chan<- request) bool {
 			} else {
 				a.edit(k)
 			}
+		}
+
+		return true
+	}
+
+	if dialog := a.reactionAuthors; dialog != nil {
+		name := k.name
+		if name == "" {
+			name = commandKey(k).text
+		}
+
+		if dialog.Key(name) {
+			a.reactionAuthors = nil
 		}
 
 		return true
@@ -183,6 +210,21 @@ func (a *app) input(k key, out chan<- request) bool {
 		return true
 	}
 
+	if a.textAttachmentPrompt != nil {
+		a.textAttachmentNameInput(k)
+		return true
+	}
+
+	if a.filePicker != nil {
+		a.filePickerInput(k)
+		return true
+	}
+
+	if a.attachmentTitle != "" {
+		a.attachmentChoiceInput(commandKey(k), out)
+		return true
+	}
+
 	if k.name == "nextChat" || k.name == "previousChat" {
 		step := 1
 		if k.name == "previousChat" {
@@ -198,15 +240,31 @@ func (a *app) input(k key, out chan<- request) bool {
 		return true
 	}
 
-	if k.name == "saveDraft" && a.open && (a.composing || a.imagePath) {
+	if k.name == "saveDraft" && a.open && a.composing {
 		a.parkDraft()
 		a.resetChat()
 
 		return true
 	}
 
-	if a.imagePath {
-		a.attachmentInput(k, out)
+	if a.open && a.pending == "" && !a.searching && a.editID == 0 && !a.demo {
+		switch k.name {
+		case "alt+a":
+			a.beginAttachment(false)
+			return true
+		case "alt+t", "textAttachment":
+			a.textAttachmentPrompt = &tui.TextAttachmentPrompt{}
+			return true
+		}
+	}
+
+	if k.name == "editor" && a.open && a.pending == "" && !a.searching {
+		if !a.composing {
+			a.restoreDraft()
+		}
+
+		a.composing, a.vimRequested, a.status = true, true, ""
+
 		return true
 	}
 
@@ -214,8 +272,13 @@ func (a *app) input(k key, out chan<- request) bool {
 		k = commandKey(k)
 	}
 
-	if a.open && !a.searching && (k.name == "pasteImage" || !a.composing && k.name == "" && k.text == "s") {
-		if !a.demo && a.pending == "" && a.staged == nil && a.editID == 0 {
+	if a.open && !a.searching && (k.name == "pasteImage" || k.name == "paste" && tui.ClipboardPNGPaste(k.text) ||
+		!a.composing && k.name == "" && k.text == "s") {
+		if !a.demo && a.pending == "" && a.editID == 0 {
+			if !a.composing {
+				a.restoreDraft()
+			}
+
 			a.imageFromCompose, a.composing, a.prefixG = a.composing, false, false
 			a.ask(out, request{kind: "clipboard", chat: a.currentChat()})
 		}
@@ -225,8 +288,10 @@ func (a *app) input(k key, out chan<- request) bool {
 
 	if a.composing {
 		switch k.name {
+		case "jumpBack":
+			a.showDraftAttachments()
 		case "escape":
-			a.clearComposer()
+			a.parkDraft()
 		case "fileMode":
 			if a.staged != nil && a.staged.format != "" && a.staged.format != "gif" {
 				a.asFile = !a.asFile
@@ -299,7 +364,9 @@ func (a *app) input(k key, out chan<- request) bool {
 				a.restoreDraft()
 			}
 		case "jumpBack":
-			a.backToMessage(out)
+			if a.pending == "" {
+				a.showDraftAttachments()
+			}
 		case "up":
 			a.scroll(out, 1)
 		case "down":
@@ -341,10 +408,17 @@ func (a *app) input(k key, out chan<- request) bool {
 				}
 			case "y":
 				a.copyMessage()
+			case "Z":
+				a.showReactionAuthors(out)
 			case "z":
 				if !a.demo && a.pending == "" && len(a.log) > 0 {
-					a.pickingReaction = true
+					a.pickingReaction, a.reactionTarget = true, a.log[a.offset].id
+					a.reactionCatalog, a.reactionCatalogLoaded = nil, false
+					a.reactionSuggestionIndex = 0
+					a.status = ""
 				}
+			case "H":
+				a.backToMessage(out)
 			case "J":
 				a.jumpToReply(out)
 			case "u":
@@ -359,8 +433,7 @@ func (a *app) input(k key, out chan<- request) bool {
 				a.askDelete(k.text == "D")
 			case "a", "A":
 				if !a.demo && a.pending == "" {
-					a.imagePath, a.filePath = true, k.text == "A"
-					a.clearDraft()
+					a.beginAttachment(k.text == "A")
 				}
 			case "S":
 				if !a.demo && a.pending == "" {
@@ -383,6 +456,8 @@ func (a *app) input(k key, out chan<- request) bool {
 
 					a.revealID = id
 				}
+			case "V":
+				a.showChatAttachments()
 			}
 		}
 

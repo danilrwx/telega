@@ -5,6 +5,7 @@ import (
 	"unicode"
 	"unicode/utf16"
 
+	"github.com/danilrwx/telega/tui"
 	"github.com/gotd/td/tg"
 	"github.com/rivo/uniseg"
 )
@@ -215,9 +216,29 @@ func writeStyle(out *strings.Builder, style textStyle, codeSGR string) {
 	out.WriteByte('m')
 }
 
+func plainMessageLines(text string, width, limit int, colors *terminalPalette) []string {
+	var lines []string
+
+	for _, block := range tui.SplitCodeFences(text) {
+		if block.Code {
+			for _, line := range tui.CodeLines(block, width) {
+				lines = append(lines, "\x1b["+colors.codeSGR+"m"+line+"\x1b[0m")
+			}
+		} else {
+			lines = append(lines, tui.Wrap(block.Text, width, limit-len(lines))...)
+		}
+
+		if limit > 0 && len(lines) >= limit {
+			return lines[:limit]
+		}
+	}
+
+	return lines
+}
+
 func formattedMessage(msg message, width, limit int, reveal bool, colors *terminalPalette) []string {
 	if msg.attachment == nil && len(msg.spans) == 0 {
-		return wrap(msg.text, width, limit)
+		return plainMessageLines(msg.text, width, limit, colors)
 	}
 
 	var lines []string
@@ -228,14 +249,43 @@ func formattedMessage(msg message, width, limit int, reveal bool, colors *termin
 			kind = "File"
 		}
 
-		lines = append(lines, colors.attachment+wrap("["+kind+"] "+msg.attachment.name, width, 1)[0]+"\x1b[0m")
+		label := "[" + kind + "] " + msg.attachment.name
+		if kind == "Video" {
+			details := msg.attachment.videoDetails()
+			if details != "" {
+				nameWidth := width - uniseg.StringWidth(" · "+details)
+				if nameWidth >= len("[Video] ")+5 {
+					name := tui.Wrap(label, nameWidth, 2)
+
+					label = name[0]
+					if len(name) > 1 {
+						label = tui.Wrap(label, nameWidth-1, 1)[0] + "…"
+					}
+
+					label += " · " + details
+				} else {
+					for uniseg.StringWidth("[Video] "+details) > width {
+						last := strings.LastIndex(details, " · ")
+						if last < 0 {
+							break
+						}
+
+						details = details[:last]
+					}
+
+					label = "[Video] " + details
+				}
+			}
+		}
+
+		lines = append(lines, colors.attachment+tui.Wrap(label, width, 1)[0]+"\x1b[0m")
 		if len(lines) == limit || msg.text == "[Attachment]" || msg.text == "" {
 			return lines
 		}
 	}
 
 	if len(msg.spans) == 0 {
-		return append(lines, wrap(msg.text, width, limit-len(lines))...)
+		return append(lines, plainMessageLines(msg.text, width, limit-len(lines), colors)...)
 	}
 
 	var line strings.Builder

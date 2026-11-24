@@ -91,6 +91,7 @@ func TestSwitchChatRestoresReplyAndCaption(t *testing.T) {
 
 	a.staged = &uploadAttachment{path: path, temporary: true}
 	a.input(key{name: "nextChat"}, out)
+	a.flushChatHistory(out)
 
 	if req := <-out; req.kind != "history" || req.chat.key != second.key || a.composing {
 		t.Fatal("Ctrl+N did not switch from a filtered chat with a draft")
@@ -98,6 +99,7 @@ func TestSwitchChatRestoresReplyAndCaption(t *testing.T) {
 
 	a.receive(out, serverEvent{kind: "history", chat: second.key, log: []message{{id: 21}}})
 	a.input(key{name: "previousChat"}, out)
+	a.flushChatHistory(out)
 
 	if req := <-out; req.chat.key != first.key {
 		t.Fatal("Ctrl+P did not go back")
@@ -112,8 +114,42 @@ func TestSwitchChatRestoresReplyAndCaption(t *testing.T) {
 
 	a.input(key{name: "escape"}, out)
 
+	if _, err := os.Stat(path); err != nil || a.composing {
+		t.Fatalf("leaving the composer should preserve the staged screenshot: %v", err)
+	}
+
+	a.restoreDraft()
+	a.clearComposer()
+
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("cancel did not remove the staged screenshot: %v", err)
+		t.Fatalf("clearing the composer did not remove the staged screenshot: %v", err)
+	}
+}
+
+func TestRapidSwitchLoadsOnlyTheLastChat(t *testing.T) {
+	a := app{ready: true, chats: []chat{workflowChat(1, "A"), workflowChat(2, "B"), workflowChat(3, "C")}}
+	out := make(chan request, 1)
+	a.openChat(out, 0)
+	old := <-out
+	a.input(key{name: "nextChat"}, out)
+	a.input(key{name: "nextChat"}, out)
+
+	if a.selected != 2 || len(out) != 0 || old.historyCtx.Err() == nil {
+		t.Fatal("switching should advance immediately and cancel the old request")
+	}
+
+	a.flushChatHistory(out)
+	last := <-out
+	a.receive(out, serverEvent{kind: "error", historyID: old.historyID, text: "stale"})
+
+	if last.chat.key != a.chats[2].key || a.pending != "history" || a.status != "" {
+		t.Fatal("a canceled response changed the current chat")
+	}
+
+	a.receive(out, serverEvent{kind: "history", historyID: last.historyID, chat: last.chat.key, log: []message{{id: 31}}})
+
+	if a.pending != "" || len(a.log) != 1 || a.log[0].id != 31 {
+		t.Fatal("the final history was not loaded")
 	}
 }
 
@@ -148,7 +184,7 @@ func TestJumpSearchAndUnread(t *testing.T) {
 		t.Fatal("jump did not select the original")
 	}
 
-	a.input(key{name: "jumpBack"}, out)
+	a.input(key{text: "H"}, out)
 
 	req = <-out
 	if req.kind != "jumpBack" || req.anchor != 80 {

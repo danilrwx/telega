@@ -1,6 +1,7 @@
 package telega
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func TestRetryKeepsAttachmentAndRandomID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	upload, err := stageAttachment(t.Context(), request{kind: "file", text: path}, "")
+	upload, err := localUpload(path, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +34,24 @@ func TestRetryKeepsAttachmentAndRandomID(t *testing.T) {
 	first := <-out
 	if first.kind != "send" || first.randomID == 0 {
 		t.Fatalf("missing send identity: %+v", first)
+	}
+
+	a.receive(out, serverEvent{kind: "error", text: "request failed"})
+	a.noticeStatus = "New message"
+
+	var screen bytes.Buffer
+	if err := paint(&screen, &a, minTerminalCols, 18); err != nil {
+		t.Fatal(err)
+	}
+
+	if result := screen.String(); !strings.Contains(result, "Send failed") || !strings.Contains(result, "Enter retry") || !strings.Contains(result, "caption") {
+		t.Fatalf("failed send lost its retry hint or draft: %q", result)
+	}
+
+	a.input(key{name: "enter"}, out)
+
+	if retry := <-out; retry.randomID != first.randomID || retry.upload != first.upload || retry.text != first.text {
+		t.Fatalf("failed send lost the original request: %+v", retry)
 	}
 
 	a.receive(out, serverEvent{kind: "offline", text: "lost connection"})
@@ -289,7 +308,7 @@ func TestTopicAndCommentQueriesStayInTheThread(t *testing.T) {
 	}
 
 	a.receive(out, serverEvent{kind: "send", chat: parent.key, threadID: 30, log: []message{{id: 36, out: true}}})
-	a.input(key{name: "jumpBack"}, out)
+	a.input(key{text: "H"}, out)
 
 	back := <-out
 	if back.kind != "threadParent" || back.anchor != 80 {

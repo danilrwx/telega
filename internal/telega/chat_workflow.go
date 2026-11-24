@@ -1,11 +1,54 @@
 package telega
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 )
+
+const chatSwitchDelay = 120 * time.Millisecond
+
+func isChatHistory(kind string) bool {
+	switch kind {
+	case "history", "older", "newer", "latest", "threadParent":
+		return true
+	}
+
+	return false
+}
+
+func (a *app) cancelHistory() {
+	a.historyDue = time.Time{}
+	if a.historyCancel != nil {
+		a.historyCancel()
+		a.historyCancel = nil
+	}
+}
+
+func (a *app) trackHistory(req request) request {
+	a.cancelHistory()
+	a.historySeq++
+	req.historyID = a.historySeq
+	req.historyCtx, a.historyCancel = context.WithCancel(context.Background())
+
+	return req
+}
+
+func (a *app) flushChatHistory(out chan<- request) {
+	if !a.open || a.historyDue.IsZero() {
+		return
+	}
+
+	req := a.trackHistory(request{kind: "history", chat: a.currentChat()})
+	select {
+	case out <- req:
+	default:
+		a.cancelHistory()
+		a.historyDue = time.Now().Add(15 * time.Millisecond)
+	}
+}
 
 type chatDraft struct {
 	text, replyPreview, editOriginal string
@@ -13,12 +56,20 @@ type chatDraft struct {
 	cursor                           int
 	editHasAttachment                bool
 	upload                           *uploadAttachment
-	imagePath, filePath, asFile      bool
+	moreUploads                      []stagedAttachment
+	asFile                           bool
 	retrySend                        *request
 }
 
+func (a *app) composerDraft() chatDraft {
+	return chatDraft{
+		text: string(a.draft), replyPreview: a.replyPreview, editOriginal: a.editOriginal, replyID: a.replyID, replyTopic: a.replyTopic,
+		editID: a.editID, cursor: a.draftCursor, editHasAttachment: a.editHasAttachment, upload: a.staged, moreUploads: a.moreUploads, asFile: a.asFile, retrySend: a.retrySend,
+	}
+}
+
 func (a *app) parkDraft() {
-	if !a.composing && !a.imagePath {
+	if !a.composing {
 		return
 	}
 
@@ -27,11 +78,8 @@ func (a *app) parkDraft() {
 			a.drafts = make(map[chatPosition]chatDraft)
 		}
 
-		a.drafts[a.draftPosition()] = chatDraft{
-			text: string(a.draft), replyPreview: a.replyPreview, editOriginal: a.editOriginal, replyID: a.replyID, replyTopic: a.replyTopic,
-			editID: a.editID, cursor: a.draftCursor, editHasAttachment: a.editHasAttachment, upload: a.staged, imagePath: a.imagePath, filePath: a.filePath, asFile: a.asFile, retrySend: a.retrySend,
-		}
-		a.staged = nil
+		a.drafts[a.draftPosition()] = a.composerDraft()
+		a.staged, a.moreUploads = nil, nil
 	}
 
 	a.clearComposer()
@@ -39,16 +87,26 @@ func (a *app) parkDraft() {
 
 func (a *app) restoreDraft() {
 	key := a.draftPosition()
-	if draft, ok := a.drafts[key]; ok {
+	disk, diskOK := a.loadDiskDraft()
+
+	draft, ok := a.drafts[key]
+	if !ok {
+		draft, ok = disk, diskOK
+	}
+
+	if ok {
 		delete(a.drafts, key)
 		a.draft = append(a.draft[:0], []rune(draft.text)...)
-		a.draftCursor, a.editHasAttachment, a.editOriginal = draft.cursor, draft.editHasAttachment, draft.editOriginal
+		a.draftCursor = max(0, min(draft.cursor, len(a.draft)))
+		a.editHasAttachment, a.editOriginal = draft.editHasAttachment, draft.editOriginal
 		a.replyID, a.replyTopic, a.replyPreview = draft.replyID, draft.replyTopic, draft.replyPreview
-		a.editID, a.staged, a.imagePath, a.composing = draft.editID, draft.upload, draft.imagePath, !draft.imagePath
+		a.editID, a.staged, a.composing = draft.editID, draft.upload, true
 
-		a.filePath, a.asFile, a.retrySend = draft.filePath, draft.asFile, draft.retrySend
+		a.asFile, a.retrySend = draft.asFile, draft.retrySend
+
+		a.moreUploads = draft.moreUploads
 		if draft.retrySend != nil {
-			a.status = "Send pending · Enter retries"
+			a.status = "Send interrupted · Enter retry"
 		}
 	}
 }
@@ -59,14 +117,16 @@ func (a *app) draftPosition() chatPosition {
 }
 
 func (a *app) clearComposer() {
-	a.composing, a.imagePath, a.editID, a.editHasAttachment, a.editOriginal = false, false, 0, false, ""
+	a.composing, a.editID, a.editHasAttachment, a.editOriginal = false, 0, false, ""
 	a.clearDraft()
 	a.clearReply()
 	a.discardAttachment()
-	a.filePath, a.asFile, a.retrySend = false, false, nil
+	a.asFile, a.retrySend = false, nil
 }
 
 func (a *app) resetChat() {
+	a.cancelHistory()
+
 	if a.thread != nil {
 		a.jumps = a.jumps[:a.threadJumpBase]
 	}
@@ -74,6 +134,9 @@ func (a *app) resetChat() {
 	a.thread, a.topicEntries = nil, nil
 	a.threadReturnID, a.threadJumpBase = 0, 0
 	a.pickingReaction = false
+	a.attachmentChoices, a.reactionAuthors, a.filePicker = nil, nil, nil
+	a.attachmentTitle = ""
+	a.textAttachmentPrompt = nil
 	a.open, a.status, a.log, a.offset = false, "", nil, 0
 	a.olderEnd, a.newerTrimmed, a.messageQuery = false, false, ""
 	a.revealID, a.prefetchAnchor = 0, 0
@@ -95,7 +158,7 @@ func (a *app) openChat(out chan<- request, index int) {
 }
 
 func (a *app) switchChat(out chan<- request, step int) {
-	if a.pending != "" {
+	if a.pending != "" && !isChatHistory(a.pending) {
 		return
 	}
 
@@ -110,8 +173,15 @@ func (a *app) switchChat(out chan<- request, step int) {
 
 	a.parkDraft()
 	a.resetChat()
+
 	a.chatQuery = ""
-	a.openChat(out, next)
+	if a.demo {
+		a.openChat(out, next)
+		return
+	}
+
+	a.selected, a.open, a.pending = next, true, "history"
+	a.historyDue = time.Now().Add(chatSwitchDelay)
 }
 
 func (m message) editable() bool {
@@ -140,6 +210,11 @@ func (a *app) beginEdit() {
 }
 
 func (a *app) submitDraft(out chan<- request) {
+	if len(a.draft) > inputLimit {
+		a.status = fmt.Sprintf("Shorten the draft to %d characters before sending", inputLimit)
+		return
+	}
+
 	text := string(a.draft)
 	if a.editID != 0 {
 		if text == a.editOriginal {

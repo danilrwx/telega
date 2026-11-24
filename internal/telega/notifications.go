@@ -216,7 +216,7 @@ func (a *app) deliverNotice(out io.Writer, desktop chan<- desktopNotice, notice 
 }
 
 func (a *app) canSeeHistory() bool {
-	return a.open && a.focused && !a.searching && !a.imagePath &&
+	return a.open && a.focused && !a.searching && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" &&
 		len(a.topicEntries) == 0 && a.serverResults == nil && a.forwardIDs == nil && a.confirmDelete == nil && a.linkChoices == nil
 }
 

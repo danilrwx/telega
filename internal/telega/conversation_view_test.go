@@ -15,7 +15,7 @@ func TestChannelMessageBlocksKeepTheirContentTogether(t *testing.T) {
 		ready: true, open: true, chats: []chat{{key: peerKey{'c', 2}, title: "Release Notes"}},
 		log: []message{
 			{
-				id: 2, date: morning.Add(time.Minute), text: strings.Repeat("x", 95),
+				id: 2, date: morning.Add(time.Minute), text: strings.Repeat("x", 115),
 				attachment: &attachment{name: "board.jpg", kind: "Photo"},
 				reply:      messageReply{id: 1, quote: "Earlier update"}, reactions: "👍 2",
 			},
@@ -30,9 +30,9 @@ func TestChannelMessageBlocksKeepTheirContentTogether(t *testing.T) {
 
 	out := screen.String()
 	for _, fragment := range []string{
-		"\x1b[13;32H09:01", "[J] Ada · Earlier update",
-		"[Photo] board.jpg", strings.Repeat("x", 90) + "\x1b[0m", "👍 2",
-		"\x1b[10;32H09:00", "\x1b[10;38HAda", "[Video] bench.mp4",
+		"\x1b[12;33H09:01", "[J] Ada · Earlier update",
+		"[Photo] board.jpg", "\x1b[14;41H" + strings.Repeat("x", 110) + "\x1b[0m", "\x1b[15;41Hxxxxx\x1b[0m", "👍 2",
+		"\x1b[9;33H09:00", "\x1b[9;39HAda", "[Video] bench.mp4",
 	} {
 		if !strings.Contains(out, fragment) {
 			t.Errorf("conversation lost %q", fragment)
@@ -92,7 +92,7 @@ func TestDirectMessagesUseSeparateBlocksForEachMessage(t *testing.T) {
 	}
 
 	out := screen.String()
-	for _, stamp := range []string{"\x1b[12;28H09:02", "\x1b[9;28H09:01", "\x1b[6;28H09:00", "→ You", "← Ada"} {
+	for _, stamp := range []string{"\x1b[11;29H09:02", "\x1b[8;29H09:01", "\x1b[5;29H09:00", "→ You", "← Ada"} {
 		if !strings.Contains(out, stamp) {
 			t.Errorf("private message block is missing %q", stamp)
 		}
@@ -121,7 +121,7 @@ func TestConversationShowsDateAndUnreadSeparators(t *testing.T) {
 	}
 
 	out := screen.String()
-	for _, part := range []string{"\x1b[6;46H── 2026-06-08 ──", "\x1b[10;46H── 2026-06-09 ──", "\x1b[11;48H── Unread ──"} {
+	for _, part := range []string{"\x1b[5;47H── 2026-06-08 ──", "\x1b[9;47H── 2026-06-09 ──", "\x1b[10;49H── Unread ──"} {
 		if !strings.Contains(out, part) {
 			t.Fatalf("conversation missing %q", part)
 		}
@@ -129,5 +129,38 @@ func TestConversationShowsDateAndUnreadSeparators(t *testing.T) {
 
 	if strings.Count(out, "2026-06-09") != 1 || a.visibleMessages != 3 {
 		t.Fatal("date separators should appear once per day and preserve the visible message count")
+	}
+}
+
+func TestOutgoingChecksUpdateWithReadReceipt(t *testing.T) {
+	peer := peerKey{'u', 2}
+	at := time.Date(2026, time.June, 9, 9, 0, 0, 0, time.UTC)
+	a := app{
+		ready: true, open: true, chats: []chat{{key: peer, title: "Ada", readOutboxID: 1}},
+		log: []message{
+			{id: 3, date: at, text: "Third"},
+			{id: 2, date: at, text: "Second", out: true, edited: true},
+			{id: 1, date: at, text: "First", out: true},
+		},
+	}
+
+	render := func() string {
+		var screen bytes.Buffer
+		if err := paint(&screen, &a, minTerminalCols, 18); err != nil {
+			t.Fatal(err)
+		}
+
+		return screen.String()
+	}
+
+	if out := render(); !strings.Contains(out, " · ✓ · edited") || strings.Count(out, "✓") != 3 {
+		t.Fatalf("expected one sent and one read outgoing message: %q", out)
+	}
+
+	a.receive(nil, serverEvent{kind: "readOutbox", chat: peer, anchor: 2})
+	a.receive(nil, serverEvent{kind: "readOutbox", chat: peer, anchor: 1})
+
+	if out := render(); !strings.Contains(out, " · ✓✓ · edited") || strings.Count(out, "✓") != 4 {
+		t.Fatalf("expected the live read receipt to advance: %q", out)
 	}
 }

@@ -1,17 +1,18 @@
 package session
 
 import (
+	"bufio"
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	gotdsession "github.com/gotd/td/session"
-	"golang.org/x/term"
 )
 
 // Account provides the credentials and storage for the Telegram connection.
@@ -22,7 +23,8 @@ type Account struct {
 }
 
 func parseCredentials(idText, hash, dir string) (Account, error) {
-	id, err := strconv.ParseInt(idText, 10, 32)
+	id, err := strconv.ParseInt(strings.TrimSpace(idText), 10, 32)
+	hash = strings.TrimSpace(hash)
 
 	_, invalidHash := hex.DecodeString(hash)
 	if err != nil || id < 1 || len(hash) != 32 || invalidHash != nil {
@@ -84,25 +86,20 @@ func Load() (Account, error) {
 	}
 
 	fmt.Println("Get your api_id and api_hash at https://my.telegram.org (API development tools).")
-	fmt.Print("API ID: ")
 
-	if _, err := fmt.Fscanln(os.Stdin, &id); err != nil {
-		return Account{}, fmt.Errorf("read API ID: %w", err)
-	}
+	input := bufio.NewScanner(os.Stdin)
 
-	fmt.Print("API hash: ")
-
-	secret, err := term.ReadPassword(int(os.Stdin.Fd()))
-
-	fmt.Println()
-
+	id, err = readCredential(input, "API ID")
 	if err != nil {
 		return Account{}, err
 	}
 
-	cfg, err := parseCredentials(id, strings.TrimSpace(string(secret)), dir)
-	clear(secret)
+	hash, err = readCredential(input, "API hash")
+	if err != nil {
+		return Account{}, err
+	}
 
+	cfg, err := parseCredentials(id, hash, dir)
 	if err != nil {
 		return Account{}, err
 	}
@@ -112,6 +109,21 @@ func Load() (Account, error) {
 	}
 
 	return cfg, nil
+}
+
+func readCredential(input *bufio.Scanner, label string) (string, error) {
+	fmt.Printf("%s: ", label)
+
+	if input.Scan() {
+		return input.Text(), nil
+	}
+
+	err := input.Err()
+	if err == nil {
+		err = io.EOF
+	}
+
+	return "", fmt.Errorf("read %s: %w", label, err)
 }
 
 type privateFile struct{ path string }

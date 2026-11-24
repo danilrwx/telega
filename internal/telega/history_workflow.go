@@ -162,7 +162,7 @@ func (a *app) jumpToUnread(out chan<- request) {
 }
 
 func (a *app) prefetchHistory(out chan<- request) {
-	if !a.open || a.demo || a.composing || a.imagePath || a.searching || a.serverResults != nil ||
+	if !a.open || a.demo || a.composing || a.filePicker != nil || a.textAttachmentPrompt != nil || a.searching || a.serverResults != nil ||
 		len(a.topicEntries) > 0 || a.forwardIDs != nil || a.confirmDelete != nil || a.linkChoices != nil ||
 		a.pending != "" || a.prefetching || a.authorLookup || a.autoReadPending || a.olderEnd || a.historyRoom <= 0 || len(a.log) == 0 ||
 		len(a.log)+historyLimit-historyWindow > a.offset {
