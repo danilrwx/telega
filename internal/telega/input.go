@@ -29,6 +29,26 @@ func (a *app) edit(k key) {
 		case "home", "end", "up", "down":
 			a.moveDraftCursor(k.name)
 			return
+		case "ctrl+a":
+			a.moveDraftCursor("home")
+			return
+		case "ctrl+e":
+			a.moveDraftCursor("end")
+			return
+		case "ctrl+w":
+			start := cursor
+			for start > 0 && a.draft[start-1] != '\n' && unicode.IsSpace(a.draft[start-1]) {
+				start--
+			}
+
+			for start > 0 && !unicode.IsSpace(a.draft[start-1]) {
+				start--
+			}
+
+			a.draft = slices.Delete(a.draft, start, cursor)
+			a.draftCursor = start
+
+			return
 		case "deleteRune":
 			if cursor < len(a.draft) {
 				a.draft = slices.Delete(a.draft, cursor, cursor+1)
@@ -373,6 +393,14 @@ func (a *app) input(k key, out chan<- request) bool {
 
 	if a.composing {
 		switch k.name {
+		case "cancelReply":
+			if a.replyID != 0 {
+				a.clearReply()
+
+				if a.retrySend != nil {
+					a.retrySend, a.status = nil, ""
+				}
+			}
 		case "jumpBack":
 			a.showDraftAttachments()
 		case "escape":
@@ -393,14 +421,6 @@ func (a *app) input(k key, out chan<- request) bool {
 			a.edit(k)
 		}
 
-		case "cancelReply":
-			if a.replyID != 0 {
-				a.clearReply()
-
-				if a.retrySend != nil {
-					a.retrySend, a.status = nil, ""
-				}
-			}
 		return true
 	}
 

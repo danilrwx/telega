@@ -22,6 +22,8 @@ Press `Enter` with an empty query in a media filter to browse its results. Histo
 | --- | --- |
 | `i`, `Esc` | Start writing or leave the composer and keep the draft |
 | `Ctrl+J`, `Enter` | Add a line or send |
+| `Ctrl+A` / `Ctrl+E` | Move to the start / end of the current line |
+| `Ctrl+W` | Delete the word to the left without joining lines |
 | `Ctrl+G` | Remove the reply target without clearing the draft |
 | `Ctrl+X` | Open the draft in `$VISUAL`, `$EDITOR`, or Vim |
 | `Ctrl+V` | Paste text or a desktop screenshot |

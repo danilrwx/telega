@@ -54,6 +54,8 @@ func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key, keyDone
 			k.name = "textAttachment"
 		case 22:
 			k.name = "pasteImage"
+		case 23:
+			k.name = "ctrl+w"
 		case 24:
 			k.name = "editor"
 		case 21:
