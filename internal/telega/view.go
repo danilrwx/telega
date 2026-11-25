@@ -33,7 +33,16 @@ func shortSender(title string, width int) string {
 
 const minTerminalCols, minTerminalRows = 24, 7
 
-func paint(w io.Writer, a *app, cols, rows int) error {
+// screenPainter remembers the last frame that can be updated in place.
+type screenPainter struct {
+	base       string
+	cols, rows int
+}
+
+func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
+	previous := *p
+	*p = screenPainter{}
+
 	var b strings.Builder
 	b.WriteString("\x1b[?25l\x1b[2J")
 
@@ -484,23 +493,51 @@ func paint(w io.Writer, a *app, cols, rows int) error {
 			b.WriteString("\x1b[0m")
 		}
 
+		base := b.Len()
+
 		for i, line := range draftLines {
 			y := draftTop + i
-			switch {
-			case a.composing && y == cursorRow && colors.draftRow != "":
-				label(composerLeft, y, composerWidth-1, "")
-				b.WriteString(colors.draftRow)
-				b.WriteString(strings.Repeat(" ", composerWidth-1))
-			case emptyDraft:
+
+			if a.composing {
+				// Overwrite the whole draft row without erasing the sidebar or
+				// leaving old characters or the old cursor row's background.
+				style := "\x1b[0m"
+				if y == cursorRow && colors.draftRow != "" {
+					style = colors.draftRow
+				}
+
+				fmt.Fprintf(&b, "\x1b[%d;%dH%s%s", y, composerLeft, style, strings.Repeat(" ", tui.ComposerIndent))
+			} else if emptyDraft {
 				b.WriteString(colors.muted)
 			}
 
 			label(draftX, y, draftWidth, line)
+
+			if a.composing {
+				b.WriteString(strings.Repeat(" ", max(0, draftWidth-uniseg.StringWidth(line))))
+			}
+
 			b.WriteString("\x1b[0m")
 		}
 
 		if a.composing {
 			fmt.Fprintf(&b, "\x1b[%d;%dH\x1b[?25h", cursorRow, cursorX)
+
+			if len(popup.Lines) == 0 {
+				frame := b.String()
+
+				next := screenPainter{base: frame[:base], cols: cols, rows: rows}
+				if next == previous {
+					frame = frame[base:]
+				}
+
+				_, err := io.WriteString(w, frame)
+				if err == nil {
+					*p = next
+				}
+
+				return err
+			}
 		}
 	} else if prompt != "" {
 		prefix := tui.Wrap(prompt+" > ", cols-4, 1)[0]

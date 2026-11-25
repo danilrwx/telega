@@ -209,6 +209,8 @@ func Run(opts Options) error {
 
 	statusAvailable := false
 
+	var screen screenPainter
+
 	for {
 		if chatStatusTick != nil {
 			unread, mentions, available := a.chatStatusCounts()
@@ -231,7 +233,7 @@ func Run(opts Options) error {
 		}
 
 		if a.imagePreview == nil || a.imagePreview != displayedImage || w != previewCols || h != previewRows {
-			if err := paint(output, &a, w, h); err != nil {
+			if err := screen.paint(output, &a, w, h); err != nil {
 				return err
 			}
 		}
@@ -287,6 +289,7 @@ func Run(opts Options) error {
 		case <-ctx.Done():
 			return nil
 		case <-resize:
+			screen = screenPainter{}
 		case err := <-voiceDone:
 			a.finishVoiceRecording(err)
 		case err := <-playbackDone:
@@ -333,6 +336,10 @@ func Run(opts Options) error {
 			}
 
 			edited := a.vimRequested || a.editAttachmentRequested
+			if edited {
+				screen = screenPainter{}
+			}
+
 			if a.editAttachmentRequested {
 				a.editAttachmentRequested = false
 				if err := a.editDraftAttachment(ctx, func(cmd *exec.Cmd) (error, error) {
