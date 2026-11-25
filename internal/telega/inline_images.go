@@ -186,7 +186,7 @@ func (a *app) loadVisibleImages(out chan<- request) {
 		return
 	}
 
-	if a.pins != nil || a.chatActions != nil || a.settingsOpen || a.attachmentTitle != "" || a.filePicker != nil || a.textAttachmentPrompt != nil || a.reactionAuthors != nil || len(a.confirmDelete) != 0 || a.forwardIDs != nil || a.chatPicker || a.messageSearch != nil || a.reactionPickerOpen || len(a.linkChoices) != 0 {
+	if a.pollDialog != nil || a.pins != nil || a.chatActions != nil || a.settingsOpen || a.attachmentTitle != "" || a.filePicker != nil || a.textAttachmentPrompt != nil || a.reactionAuthors != nil || len(a.confirmDelete) != 0 || a.forwardIDs != nil || a.chatPicker || a.messageSearch != nil || a.reactionPickerOpen || len(a.linkChoices) != 0 {
 		return
 	}
 

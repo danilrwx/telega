@@ -154,6 +154,10 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 		keys += "  x actions"
 	}
 
+	if a.open && !a.demo && len(a.log) > 0 && a.log[a.offset].poll != nil {
+		keys = "Enter poll  " + keys
+	}
+
 	if a.searching {
 		keys = "Enter select   Esc cancel"
 	}
@@ -615,7 +619,7 @@ func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
 		return tui.DialogPopup{}
 	}
 
-	if a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 && a.chatActions == nil && a.pins == nil {
+	if a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 && a.chatActions == nil && a.pins == nil && a.pollDialog == nil {
 		return tui.DialogPopup{}
 	}
 
@@ -663,6 +667,8 @@ func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
 
 	content := func(width, height int, row func(string, bool, bool, bool)) {
 		switch {
+		case a.pollDialog != nil:
+			a.pollDialog.render(width, height, row)
 		case a.pins != nil:
 			a.drawPins(width, height, row)
 		case a.chatActions != nil:

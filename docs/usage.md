@@ -45,6 +45,10 @@ In the draft attachment list, use `a` to add, `e` to edit a copy, `d` to remove,
 
 Select a channel post marked `[c] Comments` and press `c` to open its discussion. Press `i` to write a comment on the post, or select a comment and press `r` to reply to it. Press `Enter` to send. Replies to comments appear indented, and `J` jumps to the message they reply to. Press `h` or `Esc` outside the composer to return to the post.
 
+## Polls
+
+Select a poll and press `Enter` to view options and results. Use `Space` to select answers in multiple-choice polls and `Enter` to vote. Use `r` to refresh results and `x` to retract your vote when Telegram allows it.
+
 ## Media and reactions
 
 - **Gallery** — `V` opens the chat’s full media history. `Tab` switches between media, files, links, music, and voice messages. Move with the arrows or `hjkl`, load older items with `PgDn`, open with `Enter`, or jump to the message with `g`.

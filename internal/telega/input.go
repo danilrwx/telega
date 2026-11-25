@@ -164,6 +164,11 @@ func (a *app) input(k key, out chan<- request) bool {
 		}
 	}
 
+	if a.pollDialog != nil {
+		a.pollInput(commandKey(k), out)
+		return true
+	}
+
 	if a.pins != nil {
 		a.pinsInput(k, out)
 		return true
@@ -497,6 +502,10 @@ func (a *app) input(k key, out chan<- request) bool {
 				}
 			}
 		case "enter":
+			if a.openPoll(out) {
+				return true
+			}
+
 			if a.pending == "" {
 				a.composing = true
 				a.restoreDraft()

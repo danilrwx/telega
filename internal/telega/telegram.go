@@ -50,6 +50,7 @@ func keyFor(peer tg.PeerClass) peerKey {
 }
 
 type message struct {
+	poll                                    *messagePoll
 	author, avatarPeer                      peerKey
 	avatar                                  *attachment
 	authorName                              string
@@ -74,8 +75,11 @@ type message struct {
 func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 	switch msg := value.(type) {
 	case *tg.Message:
+		poll := pollFromMedia(msg.Media)
 		text := msg.Message
-		if text == "" {
+		if poll != nil && text == "" {
+			text = poll.preview()
+		} else if text == "" {
 			text = "[Attachment]"
 		}
 
@@ -93,7 +97,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 		return peer, message{
 			reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions,
 			chosenReactions: reactionChoices(reactions, true), messageReactions: reactionChoices(reactions, false),
-			pinned: msg.Pinned, comments: msg.Replies.Comments, commentCount: msg.Replies.Replies,
+			poll: poll, pinned: msg.Pinned, comments: msg.Replies.Comments, commentCount: msg.Replies.Replies,
 			author: author, avatarPeer: avatarPeer, authorName: limitText(msg.PostAuthor, 80), protected: msg.Noforwards,
 			id: msg.ID, text: text, date: time.Unix(int64(msg.Date), 0), edited: msg.EditDate > 0 && !msg.EditHide,
 			out: msg.Out, reply: replyInfo(msg.ReplyTo), forward: forwardInfo(msg.FwdFrom), attachment: fileFromMedia(msg.Media), spans: spans, links: messageLinks(text, msg.Entities, spans), mentioned: msg.Mentioned,
@@ -113,6 +117,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 }
 
 type request struct {
+	poll                *pollRequest
 	pins                *pinDialog
 	pinState            bool
 	historyID, searchID uint64
@@ -145,6 +150,8 @@ type request struct {
 }
 
 type serverEvent struct {
+	poll                              *pollUpdate
+	pollRequest                       *pollRequest
 	pins                              *pinDialog
 	pinState                          bool
 	historyID, searchID               uint64
@@ -370,6 +377,9 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 			kind: "presence", chat: peerKey{'u', update.UserID}, presence: update.Status,
 		})
 	})
+	dispatch.OnMessagePoll(func(ctx context.Context, _ tg.Entities, update *tg.UpdateMessagePoll) error {
+		return emit(ctx, events, pollEvent(update))
+	})
 	registerPinUpdates(dispatch, events)
 	dispatch.OnNotifySettings(func(context.Context, tg.Entities, *tg.UpdateNotifySettings) error {
 		notifyChanged.Store(true)
@@ -471,6 +481,10 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 				case "chats":
 					value.page = req.page
 					value.chats, value.page.next, err = loadDialogPage(ctx, api, req.page)
+				case "pollResults", "pollVote":
+					go func() { _ = emit(ctx, events, runPollRequest(ctx, api, req)) }()
+
+					continue
 				case "listPins":
 					go func() { _ = emit(ctx, events, runPinsRequest(ctx, api, req)) }()
 
