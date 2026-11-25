@@ -20,9 +20,10 @@ import (
 
 // Options configure the terminal client at startup.
 type Options struct {
-	Demo    bool
-	QR      bool
-	Version string
+	Demo     bool
+	QR       bool
+	Version  string
+	OpenLink string
 }
 
 type config struct {
@@ -38,6 +39,17 @@ const (
 // Run starts the terminal client and waits for it to exit.
 func Run(opts Options) error {
 	demo := opts.Demo
+
+	var startupLink *chatLinkTarget
+
+	if opts.OpenLink != "" {
+		target, ok := parseChatLink(opts.OpenLink)
+		if !ok || demo {
+			return errors.New("unsupported Telegram chat link")
+		}
+
+		startupLink = &target
+	}
 
 	in, out := int(os.Stdin.Fd()), int(os.Stdout.Fd())
 	if !term.IsTerminal(in) || !term.IsTerminal(out) {
@@ -212,6 +224,12 @@ func Run(opts Options) error {
 	var screen screenPainter
 
 	for {
+		if startupLink != nil && a.dialogsLoaded && a.canOpenChatLink() {
+			a.chatLink = &chatLinkDialog{}
+			a.resolveChatLink(requests, *startupLink)
+			startupLink = nil
+		}
+
 		if chatStatusTick != nil {
 			unread, mentions, available := a.chatStatusCounts()
 			if available {

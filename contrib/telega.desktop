@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Telega
+Comment=Open Telegram chat links in a terminal
+Exec=telega --open %u
+Terminal=true
+NoDisplay=true
+MimeType=x-scheme-handler/tg;

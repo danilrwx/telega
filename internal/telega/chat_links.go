@@ -40,6 +40,10 @@ func parseChatLink(raw string) (chatLinkTarget, bool) {
 		return publicChatLink(raw)
 	}
 
+	if strings.HasPrefix(raw, "tg://") {
+		return parseNativeChatLink(raw)
+	}
+
 	// Do not reinterpret message permalinks, bot parameters, proxies, or other deep links.
 	if strings.ContainsAny(raw, "%?#\\") || strings.HasPrefix(raw, "/") {
 		return chatLinkTarget{}, false
@@ -72,6 +76,36 @@ func parseChatLink(raw string) (chatLinkTarget, bool) {
 	}
 
 	return publicChatLink(path)
+}
+
+// parseNativeChatLink accepts only chat opens and invitations, not other Telegram actions.
+func parseNativeChatLink(raw string) (chatLinkTarget, bool) {
+	if strings.ContainsAny(raw, "#%\\") {
+		return chatLinkTarget{}, false
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || u.Path != "" {
+		return chatLinkTarget{}, false
+	}
+
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(query) != 1 {
+		return chatLinkTarget{}, false
+	}
+
+	switch u.Host {
+	case "resolve":
+		if names := query["domain"]; len(names) == 1 {
+			return publicChatLink(names[0])
+		}
+	case "join":
+		if hashes := query["invite"]; len(hashes) == 1 && chatInviteHash.MatchString(hashes[0]) {
+			return chatLinkTarget{invite: hashes[0]}, true
+		}
+	}
+
+	return chatLinkTarget{}, false
 }
 
 func publicChatLink(name string) (chatLinkTarget, bool) {

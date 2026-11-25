@@ -12,6 +12,8 @@ import (
 
 func TestParseChatLink(t *testing.T) {
 	cases := map[string]chatLinkTarget{
+		"tg://resolve?domain=Open_Group":       {username: "open_group"},
+		"tg://join?invite=CaseSensitive":       {invite: "CaseSensitive"},
 		"@Open_Group":                          {username: "open_group"},
 		"open_group":                           {username: "open_group"},
 		"  t.me/Open_Group/  ":                 {username: "open_group"},
@@ -26,7 +28,8 @@ func TestParseChatLink(t *testing.T) {
 	}
 
 	for _, raw := range []string{
-		"", "@", "//t.me/example", "tg://resolve?domain=example", "https://t.me.evil/example",
+		"", "@", "//t.me/example", "tg://resolve?domain=a&post=1", "tg://resolve?domain=example&domain=other",
+		"tg://join?invite=A%2FB", "tg://join?invite=valid#", "tg://proxy?server=example", "tg://resolve/?domain=example", "https://t.me.evil/example",
 		"https://t.me@evil.example/example", "https://evil.example@t.me/example", "https://t.me:443/example",
 		"https://t.me./example", "https://t.me/example/123", "https://t.me/s/example", "https://t.me/c/1/2",
 		"https://t.me/share/url", "https://t.me/share", "https://t.me/example?start=test", "https://t.me/example#",

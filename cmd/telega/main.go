@@ -23,7 +23,7 @@ func appVersion() string {
 }
 
 func main() {
-	const usage = "Usage: telega [--demo | --phone | --qr | --version]\n\nSign in with a QR code by default. Use --phone to sign in with a phone number."
+	const usage = "Usage: telega [--demo | --phone | --qr | --version | --open LINK]\n\nSign in with a QR code by default. Use --phone to sign in with a phone number."
 
 	args := os.Args[1:]
 	switch {
@@ -31,9 +31,12 @@ func main() {
 		fmt.Println(usage)
 	case len(args) == 1 && args[0] == "--version":
 		fmt.Println("telega", appVersion())
-	case len(args) == 0 || len(args) == 1 && (args[0] == "--demo" || args[0] == "--phone" || args[0] == "--qr"):
+	case len(args) == 2 && args[0] == "--open" && args[1] != "",
+		len(args) == 0 || len(args) == 1 && (args[0] == "--demo" || args[0] == "--phone" || args[0] == "--qr"):
 		opts := telega.Options{Version: appVersion(), QR: true}
-		if len(args) != 0 {
+		if len(args) == 2 {
+			opts.OpenLink = args[1]
+		} else if len(args) == 1 {
 			opts.Demo = args[0] == "--demo"
 			opts.QR = args[0] != "--phone"
 		}

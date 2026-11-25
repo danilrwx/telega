@@ -22,6 +22,18 @@ Press `x` on a chat to pin or unpin it, toggle its notifications, or copy its pu
 
 To join a chat opened by its public link, press `j`, then confirm with `y`. Private invites ask for confirmation directly. Looking up or opening a chat does not join it.
 
+### Open `tg://` links from a browser on Linux
+
+Install the desktop entry from the repository, then set Telega as the default handler for `tg://`. The desktop session must be able to find `telega` on its `PATH`. If it cannot, replace `telega` in the `Exec=` line with the absolute path to your binary before setting the default.
+
+```sh
+install -Dm644 contrib/telega.desktop "${XDG_DATA_HOME:-$HOME/.local/share}/applications/telega.desktop"
+xdg-mime default telega.desktop x-scheme-handler/tg
+xdg-mime query default x-scheme-handler/tg
+```
+
+The browser launches a new terminal session. Telega supports `tg://resolve?domain=USERNAME` and `tg://join?invite=TOKEN`; joining still requires confirmation. You can also run `telega --open 'tg://resolve?domain=USERNAME'` directly. This does not route regular `https://t.me` links from the browser into Telega.
+
 ## Compose and attach
 
 | Keys | Action |
