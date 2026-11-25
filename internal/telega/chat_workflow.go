@@ -134,7 +134,7 @@ func (a *app) resetChat() {
 	a.closeForward()
 	a.closeChatPicker()
 	a.closeMessageSearch()
-	a.transcript = nil
+	a.chatActions, a.transcript = nil, nil
 
 	if a.thread != nil {
 		a.jumps = a.jumps[:a.threadJumpBase]

@@ -466,6 +466,18 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 				case "chats":
 					value.page = req.page
 					value.chats, value.page.next, err = loadDialogPage(ctx, api, req.page)
+				case "toggleChatPin":
+					err = toggleChatPin(ctx, api, req)
+
+					value.text = "Chat unpinned"
+					if !req.chat.unread.pinned {
+						value.step, value.text = 1, "Chat pinned"
+					}
+				case "toggleChatMute":
+					value.text, err = toggleChatMute(ctx, api, req.chat, time.Now())
+					if err == nil {
+						notifyChanged.Store(true)
+					}
 				case "archiveChat":
 					err = moveDialog(ctx, api, req)
 					value.page = req.page

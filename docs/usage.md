@@ -16,6 +16,8 @@
 
 Press `Enter` with an empty query in a media filter to browse its results. History loads in pages in chats, forum topics, and channel comments.
 
+Press `x` on a chat to pin or unpin it, toggle its notifications, or copy its public link if it has one.
+
 ## Compose and attach
 
 | Keys | Action |

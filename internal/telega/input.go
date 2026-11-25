@@ -164,6 +164,11 @@ func (a *app) input(k key, out chan<- request) bool {
 		}
 	}
 
+	if a.chatActions != nil {
+		a.chatActionsInput(k, out)
+		return true
+	}
+
 	if a.transcript != nil {
 		a.voiceTranscriptInput(commandKey(k), out)
 		return true
@@ -425,6 +430,11 @@ func (a *app) input(k key, out chan<- request) bool {
 	}
 
 	if a.searching && a.searchInput(k, out) {
+		return true
+	}
+
+	if k.name == "" && k.text == "x" && !a.searching {
+		a.beginChatActions()
 		return true
 	}
 
