@@ -77,6 +77,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 	switch msg := value.(type) {
 	case *tg.Message:
 		poll := pollFromMedia(msg.Media)
+
 		text := msg.Message
 		if poll != nil && text == "" {
 			text = poll.preview()

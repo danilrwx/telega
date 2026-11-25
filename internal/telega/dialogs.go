@@ -66,16 +66,19 @@ type dialogEntry struct {
 
 func parseDialogEntries(dialogs []tg.DialogClass, users []tg.UserClass, groups []tg.ChatClass, msgs []tg.MessageClass, nativeFolder int) []dialogEntry {
 	peers := peerChats(users, groups)
+
 	categories := make(map[peerKey]folderCategory, len(users))
 	for _, item := range users {
 		if u, ok := item.(*tg.User); ok {
 			kind := folderNonContacts
+
 			switch {
 			case u.Bot:
 				kind = folderBots
 			case u.Contact || u.Self:
 				kind = folderContacts
 			}
+
 			categories[peerKey{'u', u.ID}] = kind
 		}
 	}
@@ -112,6 +115,7 @@ func parseDialogEntries(dialogs []tg.DialogClass, users []tg.UserClass, groups [
 		}
 
 		c.unread, c.readOutboxID = dialogUnread(d), d.ReadOutboxMaxID
+
 		category := categories[c.key]
 		if c.group {
 			category = folderGroups
@@ -120,8 +124,10 @@ func parseDialogEntries(dialogs []tg.DialogClass, users []tg.UserClass, groups [
 		}
 
 		until, muteSet := d.NotifySettings.GetMuteUntil()
-		entries = append(entries, dialogEntry{chat: c, category: category,
-			date: dates[chatPosition{chat: c.key, id: d.TopMessage}], muteUntil: until, muteSet: muteSet})
+		entries = append(entries, dialogEntry{
+			chat: c, category: category,
+			date: dates[chatPosition{chat: c.key, id: d.TopMessage}], muteUntil: until, muteSet: muteSet,
+		})
 	}
 
 	return entries
@@ -130,6 +136,7 @@ func parseDialogEntries(dialogs []tg.DialogClass, users []tg.UserClass, groups [
 func loadNativeDialogs(ctx context.Context, api *tg.Client, folder int, cursor dialogCursor, excludePinned, keepShort bool) ([]dialogEntry, dialogCursor, bool, error) {
 	query := &tg.MessagesGetDialogsRequest{Limit: chatLimit, OffsetPeer: &tg.InputPeerEmpty{}, ExcludePinned: excludePinned}
 	query.SetFolderID(folder)
+
 	if cursor.input != nil {
 		query.OffsetPeer, query.OffsetID, query.OffsetDate = cursor.input, cursor.id, cursor.date
 		query.ExcludePinned = true
@@ -146,7 +153,9 @@ func loadNativeDialogs(ctx context.Context, api *tg.Client, folder int, cursor d
 	}
 
 	entries := parseDialogEntries(data.GetDialogs(), data.GetUsers(), data.GetChats(), data.GetMessages(), folder)
+
 	var next dialogCursor
+
 	for _, c := range entries {
 		if !c.unread.pinned && c.date > 0 {
 			next = dialogCursor{input: c.input, key: c.key, date: c.date, id: c.unread.topID}
@@ -157,6 +166,7 @@ func loadNativeDialogs(ctx context.Context, api *tg.Client, folder int, cursor d
 	// continue through a short slice when Telegram reports more dialogs.
 	slice, sliced := result.(*tg.MessagesDialogsSlice)
 	full := len(data.GetDialogs()) >= chatLimit
+
 	more := sliced && (full || keepShort && slice.Count > len(data.GetDialogs()))
 	if !more || sameDialogOffset(cursor, next) {
 		next = dialogCursor{}

@@ -38,6 +38,7 @@ func (a *app) beginChatActions() {
 
 	if a.open {
 		d.items = append([]chatAction{{"listPins", "Pinned messages"}}, d.items...)
+
 		if len(a.log) > 0 && !a.log[a.offset].service {
 			pin := chatAction{"pinMessage", "Pin selected message"}
 			if a.log[a.offset].pinned {

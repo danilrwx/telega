@@ -70,6 +70,7 @@ func TestPinsListPaginatesFromRawMessageIDs(t *testing.T) {
 	peer := &tg.PeerChat{ChatID: current.key.id}
 	api := tg.NewClient(invokeFunc(func(in bin.Encoder, out bin.Decoder) error {
 		q := in.(*tg.MessagesSearchRequest)
+
 		var items []tg.MessageClass
 
 		switch q.OffsetID {
@@ -111,6 +112,7 @@ func TestPinsListPaginatesFromRawMessageIDs(t *testing.T) {
 	}
 
 	a.receivePins(runPinsRequest(t.Context(), api, next))
+
 	if len(d.messages) != historyLimit || d.selected != historyLimit-1 || d.next != 0 || d.messages[d.selected].id != 90-historyLimit {
 		t.Fatalf("unexpected appended page: %d items, selected=%d next=%d", len(d.messages), d.selected, d.next)
 	}
@@ -126,12 +128,15 @@ func TestPinsListIgnoresResponsesForClosedDialog(t *testing.T) {
 	a.showPins(out)
 
 	fresh := <-out
+
 	a.receivePins(serverEvent{kind: "listPins", pins: stale.pins, chat: stale.chat.key, log: []message{{id: 5}}})
+
 	if a.pins != fresh.pins || !a.pins.busy || len(a.pins.messages) != 0 {
 		t.Fatalf("stale results reached the reopened pins dialog: %+v", a.pins)
 	}
 
 	a.receivePins(serverEvent{kind: "listPins", pins: fresh.pins, chat: fresh.chat.key, hint: "Permission denied"})
+
 	if a.pins.busy || a.pins.status != "Permission denied" {
 		t.Fatalf("error did not finish the active list request: %+v", a.pins)
 	}
@@ -200,6 +205,7 @@ func TestPinsLiveUpdatesApplyToCorrectPeer(t *testing.T) {
 	}
 
 	a.receivePins(serverEvent{kind: "listPins", chat: current.key, pins: req.pins, log: []message{{id: 22, pinned: true}}})
+
 	if !a.pins.changed || a.pins.busy || len(a.pins.messages) != 0 || slices.ContainsFunc(a.log, func(m message) bool { return m.pinned }) {
 		t.Fatalf("unexpected pins after live updates: dialog=%+v log=%+v", a.pins, a.log)
 	}

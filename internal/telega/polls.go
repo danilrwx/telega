@@ -60,6 +60,7 @@ func mergePoll(previous *messagePoll, update *pollUpdate) *messagePoll {
 
 		if definition.Answers != nil {
 			p.options = nil
+
 			for _, answer := range definition.Answers {
 				item, ok := answer.(*tg.PollAnswer)
 				if !ok || item == nil || len(item.Option) == 0 || pollOptionIndex(p.options, string(item.Option)) >= 0 {
@@ -141,7 +142,7 @@ func (p *messagePoll) voted() bool {
 }
 
 func (p *messagePoll) canVote() bool {
-	return len(p.options) > 0 && p.choiceKnown && !p.votingClosed() && !(p.noRevote && p.voted())
+	return len(p.options) > 0 && p.choiceKnown && !p.votingClosed() && (!p.noRevote || !p.voted())
 }
 
 func pollEvent(update *tg.UpdateMessagePoll) serverEvent {
@@ -215,6 +216,7 @@ func fetchPoll(ctx context.Context, req request,
 
 func pollResultUpdate(value tg.UpdatesClass, req request) *pollUpdate {
 	var updates []tg.UpdateClass
+
 	switch value := value.(type) {
 	case *tg.Updates:
 		updates = value.Updates
@@ -225,6 +227,7 @@ func pollResultUpdate(value tg.UpdatesClass, req request) *pollUpdate {
 	}
 
 	var best *pollUpdate
+
 	for _, item := range updates {
 		if update, ok := item.(*tg.UpdateMessagePoll); ok && update != nil {
 			u := pollEvent(update).poll
@@ -261,6 +264,7 @@ func (a *app) openPoll(out chan<- request) bool {
 
 	m := a.log[a.offset]
 	d := &pollDialog{chat: a.currentChat(), message: m.id, poll: m.poll}
+
 	a.pollDialog = d
 	if !a.demo && !a.disconnected && d.chat.input != nil {
 		d.send(out, "pollResults", nil)
@@ -271,6 +275,7 @@ func (a *app) openPoll(out chan<- request) bool {
 
 func (d *pollDialog) send(out chan<- request, kind string, choices [][]byte) {
 	d.pending = &pollRequest{id: d.poll.id, choices: choices}
+
 	d.status = "Refreshing results…"
 	if kind == "pollVote" {
 		d.status = "Sending vote…"
@@ -282,6 +287,7 @@ func (d *pollDialog) send(out chan<- request, kind string, choices [][]byte) {
 func (a *app) pollInput(k key, out chan<- request) {
 	d := a.pollDialog
 	p := d.poll
+
 	switch {
 	case k.name == "escape" || k.text == "q":
 		a.pollDialog = nil
@@ -335,6 +341,7 @@ func (a *app) pollInput(k key, out chan<- request) {
 		d.draft[id] = !d.draft[id]
 	case k.name == "enter":
 		var choices [][]byte
+
 		if p.multiple {
 			for _, option := range p.options {
 				if d.draft[option.id] {
@@ -361,6 +368,7 @@ func (a *app) receivePoll(e serverEvent) {
 				m := &a.log[i]
 				if m.poll != nil && u.matches(c.key, m.id, m.poll.id) {
 					preview := m.poll.preview()
+
 					m.poll = mergePoll(m.poll, u)
 					if m.text == "" || m.text == preview {
 						m.text = m.poll.preview()
@@ -398,6 +406,7 @@ func (d *pollDialog) render(width, height int, row func(string, bool, bool, bool
 	}
 
 	p := d.poll
+
 	title := "Poll"
 	if p.quiz {
 		title = "Quiz"
@@ -422,7 +431,9 @@ func (d *pollDialog) render(width, height int, row func(string, bool, bool, bool
 		text     string
 		selected bool
 	}
+
 	var lines []line
+
 	appendText := func(text string, selected bool) {
 		for _, text := range tui.Wrap(text, width, 0) {
 			lines = append(lines, line{text: text, selected: selected})
@@ -430,13 +441,16 @@ func (d *pollDialog) render(width, height int, row func(string, bool, bool, bool
 	}
 
 	appendText(p.question, false)
+
 	lines = append(lines, line{})
 	selectedAt := 0
+
 	for i, option := range p.options {
 		mark := "[ ] "
 		if option.chosen {
 			mark = "[✓] "
 		}
+
 		if p.canVote() && p.multiple && d.draft != nil && option.chosen != d.draft[option.id] {
 			if d.draft[option.id] {
 				mark = "[+] "
@@ -460,17 +474,21 @@ func (d *pollDialog) render(width, height int, row func(string, bool, bool, bool
 		if i == d.cursor {
 			selectedAt = len(lines)
 		}
+
 		appendText(text, i == d.cursor)
 	}
 
 	if len(p.options) == 0 {
 		appendText("No options available", false)
 	}
+
 	if p.hidden && !p.closed {
 		appendText("Results hidden until the poll closes", false)
 	}
+
 	if showCounts && p.solution != "" {
 		lines = append(lines, line{})
+
 		appendText("Explanation: "+p.solution, false)
 	}
 
@@ -483,7 +501,9 @@ func (d *pollDialog) render(width, height int, row func(string, bool, bool, bool
 	if status != "" && height >= 4 {
 		footer++
 	}
+
 	d.page = max(0, height-1-footer)
+
 	d.start = min(d.start, max(0, len(lines)-d.page))
 	if d.follow && d.page > 0 {
 		d.start = min(selectedAt, max(d.start, selectedAt-d.page+1))
@@ -491,6 +511,7 @@ func (d *pollDialog) render(width, height int, row func(string, bool, bool, bool
 	}
 
 	row(tui.Clip(title, width), true, false, false)
+
 	for _, l := range lines[d.start:min(len(lines), d.start+d.page)] {
 		row(l.text, false, l.selected, false)
 	}
@@ -498,6 +519,7 @@ func (d *pollDialog) render(width, height int, row func(string, bool, bool, bool
 	if footer == 2 {
 		row(tui.Clip(status, width), false, false, true)
 	}
+
 	if height > 1 {
 		hint := "Esc  j/k  PgUp/PgDn  r refresh"
 		if p.canVote() {
@@ -505,10 +527,12 @@ func (d *pollDialog) render(width, height int, row func(string, bool, bool, bool
 			if p.multiple {
 				hint = "Esc  Space select  Enter vote  j/k  r refresh"
 			}
+
 			if p.voted() {
 				hint += "  x retract"
 			}
 		}
+
 		row(tui.Clip(hint, width), false, false, true)
 	}
 }

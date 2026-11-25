@@ -137,6 +137,7 @@ func compareDialogDates(a, b dialogEntry) int {
 func (c *folderCursor) initialize(ctx context.Context, api *tg.Client, f dialogFilter) error {
 	peers := make([]tg.InputDialogPeerClass, 0, len(f.pinned)+len(f.explicit))
 	requested := make(map[peerKey]bool)
+
 	for _, list := range [][]tg.InputPeerClass{f.pinned, f.explicit} {
 		for _, peer := range list {
 			key := folderPeerKey(peer)
@@ -162,6 +163,7 @@ func (c *folderCursor) initialize(ctx context.Context, api *tg.Client, f dialogF
 
 	c.resolved = make(map[peerKey]bool, len(peers))
 	missing := false
+
 	for i, list := range [][]tg.InputPeerClass{f.pinned, f.explicit} {
 		for _, peer := range list {
 			key := folderPeerKey(peer)
@@ -215,7 +217,9 @@ func (c *folderCursor) matches(ctx context.Context, api *tg.Client, f dialogFilt
 	}
 
 	var kind int
+
 	var target tg.InputNotifyPeerClass = &tg.InputNotifyUsers{}
+
 	switch entry.category {
 	case folderGroups:
 		kind, target = 1, &tg.InputNotifyChats{}
@@ -233,6 +237,7 @@ func (c *folderCursor) matches(ctx context.Context, api *tg.Client, f dialogFilt
 	}
 
 	until, _ := c.defaults[kind].GetMuteUntil()
+
 	return int64(until) <= now, nil
 }
 
@@ -240,6 +245,7 @@ func (c *folderCursor) fill(ctx context.Context, api *tg.Client, f dialogFilter,
 	source := &c.sources[folder]
 	for len(source.queue) == 0 && !source.done {
 		initial := !source.started
+
 		entries, next, more, err := loadNativeDialogs(ctx, api, folder, source.cursor, !initial, true)
 		if err != nil {
 			return err
@@ -264,6 +270,7 @@ func (c *folderCursor) fill(ctx context.Context, api *tg.Client, f dialogFilter,
 			}
 
 			nativePin := entry.unread.pinned
+
 			entry.unread.pinned = false
 			if nativePin && initial {
 				c.extra = append(c.extra, entry)
@@ -313,6 +320,7 @@ func loadFolderPage(ctx context.Context, api *tg.Client, f dialogFilter, cursor 
 	}
 
 	chats := make([]chat, 0, chatLimit)
+
 	now := time.Now().Unix()
 	for {
 		queue, err := scan.next(ctx, api, f, now)
@@ -357,6 +365,7 @@ func (a *app) cycleDialogFolder(out chan<- request, step int) {
 
 func (a *app) receiveDialogFilters(out chan<- request, filters []dialogFilter) {
 	a.dialogFilters = filters
+
 	active := a.dialogPage.filter
 	if active == nil {
 		return

@@ -101,6 +101,7 @@ func (a *app) clearFolderPickerChat() {
 		if a.selected > index {
 			a.selected--
 		}
+
 		a.selected = min(a.selected, max(0, len(a.chats)-1))
 	}
 
