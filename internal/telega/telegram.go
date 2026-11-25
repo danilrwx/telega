@@ -118,6 +118,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 }
 
 type request struct {
+	chatLink            *chatLinkTarget
 	poll                *pollRequest
 	pins                *pinDialog
 	pinState            bool
@@ -151,6 +152,7 @@ type request struct {
 }
 
 type serverEvent struct {
+	chatLink                          *chatLinkResult
 	dialogFilters                     []dialogFilter
 	poll                              *pollUpdate
 	pollRequest                       *pollRequest
@@ -492,6 +494,8 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 
 					value.page = req.page
 					value.chats, value.page.next, err = loadDialogPage(ctx, api, req.page)
+				case "chatLinkResolve", "chatLinkJoin":
+					value = runChatLink(ctx, api, req)
 				case "pollResults", "pollVote":
 					go func() { _ = emit(ctx, events, runPollRequest(ctx, api, req)) }()
 

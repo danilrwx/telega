@@ -164,6 +164,11 @@ func (a *app) input(k key, out chan<- request) bool {
 		}
 	}
 
+	if a.chatLink != nil {
+		a.chatLinkInput(out, k)
+		return true
+	}
+
 	if a.pollDialog != nil {
 		a.pollInput(commandKey(k), out)
 		return true
@@ -440,6 +445,11 @@ func (a *app) input(k key, out chan<- request) bool {
 	}
 
 	if a.searching && a.searchInput(k, out) {
+		return true
+	}
+
+	if k.name == "" && k.text == "L" && !a.searching {
+		a.openChatLinkPrompt()
 		return true
 	}
 

@@ -10,6 +10,7 @@
 | `Ctrl+N` / `Ctrl+P` | Switch chats |
 | `f` in the chat list | Filter unread chats |
 | `Tab` / `Shift+Tab` in the chat list | Move between Chats, Archive, and Telegram folders |
+| `L` | Open a Telegram username or paste a `t.me` chat or invite link |
 | `Ctrl+K` | Find a chat by its display name or `@username`, including archived chats |
 | `?` / `Ctrl+F` | Search this chat or topic / all chats |
 | `Tab`, `Shift+Tab` in search | Change the scope or cycle through messages, photos, files, links, and voice messages |
@@ -18,6 +19,8 @@
 Press `Enter` with an empty query in a media filter to browse its results. History loads in pages in chats, forum topics, and channel comments.
 
 Press `x` on a chat to pin or unpin it, toggle its notifications, or copy its public link if it has one. Inside a chat, the same menu lists pinned messages and lets you pin or unpin the selected message. Choose a pin with `Enter` to jump to it.
+
+To join a chat opened by its public link, press `j`, then confirm with `y`. Private invites ask for confirmation directly. Looking up or opening a chat does not join it.
 
 ## Compose and attach
 

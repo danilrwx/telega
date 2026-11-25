@@ -402,6 +402,10 @@ func Run(opts Options) error {
 			previewOnly := a.previewOnly
 			a.openTarget, a.openExternal, a.previewOnly = "", "", false
 
+			if !external && !previewOnly && a.tryChatLink(requests, target) {
+				continue
+			}
+
 			if !external && filepath.IsAbs(target) && tui.ImageGraphics() {
 				preview, err := tui.LoadTerminalImage(target)
 				if err == nil {

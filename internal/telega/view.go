@@ -151,7 +151,7 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 			keys = strings.Replace(keys, "Tab archive", "Tab folders", 1)
 		}
 
-		keys = "x actions  " + keys + "  Alt+S settings"
+		keys = "x actions  L chat link  " + keys + "  Alt+S settings"
 	}
 
 	if a.open && !a.demo && a.thread == nil {
@@ -621,11 +621,11 @@ func paintDialogPopup(b *strings.Builder, popup tui.DialogPopup) {
 }
 
 func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
-	if a.attachmentGallery != nil && len(a.linkChoices) == 0 && a.transcript == nil {
+	if a.attachmentGallery != nil && len(a.linkChoices) == 0 && a.transcript == nil && a.chatLink == nil {
 		return tui.DialogPopup{}
 	}
 
-	if a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 && a.chatActions == nil && a.pins == nil && a.pollDialog == nil {
+	if a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 && a.chatActions == nil && a.pins == nil && a.pollDialog == nil && a.chatLink == nil {
 		return tui.DialogPopup{}
 	}
 
@@ -673,6 +673,17 @@ func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
 
 	content := func(width, height int, row func(string, bool, bool, bool)) {
 		switch {
+		case a.chatLink != nil:
+			title, lines, footer := a.chatLinkOverlay()
+			row(tui.Clip(title, width), true, false, false)
+
+			for _, line := range lines {
+				row(tui.Clip(line, width), false, false, false)
+			}
+
+			for _, line := range tui.Wrap(footer, width, 0) {
+				row(line, false, false, true)
+			}
 		case a.pollDialog != nil:
 			a.pollDialog.render(width, height, row)
 		case a.pins != nil:

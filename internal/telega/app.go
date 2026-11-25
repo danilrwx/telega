@@ -124,6 +124,7 @@ type app struct {
 	voiceRequested                                 bool
 	voice                                          *voiceRecording
 	playback                                       *voicePlayback
+	chatLink                                       *chatLinkDialog
 	pollDialog                                     *pollDialog
 	pins                                           *pinDialog
 	chatActions                                    *chatActionDialog
@@ -185,6 +186,8 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 		a.receiveDialogFilters(out, e.dialogFilters)
 	case "chats":
 		a.receiveDialogs(out, e)
+	case "chatLinkResolve", "chatLinkJoin":
+		a.receiveChatLink(out, e)
 	case "pollResults", "pollVote", "pollUpdate":
 		a.receivePoll(e)
 	case "listPins", "setPin", "pinnedMessages":
@@ -529,6 +532,7 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 
 		a.status, a.pending = e.text, ""
 		if e.kind == "offline" {
+			a.chatLink = nil
 			clear(a.voiceTranscripts)
 
 			if a.open {
