@@ -585,11 +585,11 @@ func paintDialogPopup(b *strings.Builder, popup tui.DialogPopup) {
 }
 
 func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
-	if a.attachmentGallery != nil && len(a.linkChoices) == 0 && a.transcript == nil && a.chatLink == nil {
+	if a.updateDialog == nil && a.attachmentGallery != nil && len(a.linkChoices) == 0 && a.transcript == nil && a.chatLink == nil {
 		return tui.DialogPopup{}
 	}
 
-	if a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 && a.chatActions == nil && a.pins == nil && a.pollDialog == nil && a.chatLink == nil {
+	if a.updateDialog == nil && a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 && a.chatActions == nil && a.pins == nil && a.pollDialog == nil && a.chatLink == nil {
 		return tui.DialogPopup{}
 	}
 
@@ -637,6 +637,8 @@ func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
 
 	content := func(width, height int, row func(string, bool, bool, bool)) {
 		switch {
+		case a.updateDialog != nil:
+			a.updateDialog.Render(width, height, row)
 		case a.chatLink != nil:
 			title, lines, footer := a.chatLinkOverlay()
 			row(tui.Clip(title, width), true, false, false)

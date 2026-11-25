@@ -15,6 +15,7 @@ import (
 
 	"github.com/danilrwx/telega/internal/session"
 	"github.com/danilrwx/telega/tui"
+	"github.com/danilrwx/telega/updater"
 	"golang.org/x/term"
 )
 
@@ -103,9 +104,25 @@ func Run(opts Options) error {
 
 	requests, events := make(chan request, 1), make(chan serverEvent, 24)
 
+	if !demo {
+		go func() {
+			dialog, err := tui.CheckForUpdate(ctx, updater.App{Name: "telega", Repository: "danilrwx/telega", Version: opts.Version})
+			if err == nil && dialog != nil {
+				_ = emit(ctx, events, serverEvent{kind: "updateAvailable", updateDialog: dialog})
+			}
+		}()
+	}
+
 	inTmux := os.Getenv("TMUX") != ""
 
 	a := app{demo: demo, ready: demo, focused: true}
+
+	a.startUpdate = func(d *tui.UpdateDialog) {
+		go func() {
+			err := installUpdate(ctx, d)
+			_ = emit(ctx, events, serverEvent{kind: "installUpdate", updateDialog: d, updateError: err})
+		}()
+	}
 	defer a.stopVoicePlayback()
 	defer func() {
 		if a.voice != nil {
@@ -236,6 +253,10 @@ func Run(opts Options) error {
 		w, h, err := term.GetSize(out)
 		if err != nil {
 			return err
+		}
+
+		if a.pendingUpdate != nil && a.ready && !a.composing && a.voice == nil && a.imagePreview == nil && len(a.dialogPopup(w, h).Lines) == 0 {
+			a.updateDialog, a.pendingUpdate = a.pendingUpdate, nil
 		}
 
 		if displayedImage != nil && displayedImage != a.imagePreview {

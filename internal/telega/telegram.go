@@ -155,6 +155,8 @@ type request struct {
 }
 
 type serverEvent struct {
+	updateDialog                      *tui.UpdateDialog
+	updateError                       error
 	chatLink                          *chatLinkResult
 	dialogFilters                     []dialogFilter
 	poll                              *pollUpdate

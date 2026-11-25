@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime/debug"
 
 	"github.com/danilrwx/telega/internal/telega"
+	"github.com/danilrwx/telega/updater"
 )
 
 var version = "dev"
@@ -23,7 +26,7 @@ func appVersion() string {
 }
 
 func main() {
-	const usage = "Usage: telega [--demo | --phone | --qr | --version | --open LINK]\n\nSign in with a QR code by default. Use --phone to sign in with a phone number."
+	const usage = "Usage: telega [--demo | --phone | --qr | --version | --check-update | --update | --open LINK]\n\nSign in with a QR code by default. Use --phone to sign in with a phone number."
 
 	args := os.Args[1:]
 	switch {
@@ -31,6 +34,16 @@ func main() {
 		fmt.Println(usage)
 	case len(args) == 1 && args[0] == "--version":
 		fmt.Println("telega", appVersion())
+	case len(args) == 1 && (args[0] == "--update" || args[0] == "--check-update"):
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+
+		app := updater.App{Name: "telega", Repository: "danilrwx/telega", Version: appVersion()}
+		if err := app.RunCLI(ctx, os.Stdout, args[0] == "--update"); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
 	case len(args) == 2 && args[0] == "--open" && args[1] != "",
 		len(args) == 0 || len(args) == 1 && (args[0] == "--demo" || args[0] == "--phone" || args[0] == "--qr"):
 		opts := telega.Options{Version: appVersion(), QR: true}

@@ -153,6 +153,11 @@ func (a *app) input(k key, out chan<- request) bool {
 		return false
 	}
 
+	if a.updateDialog != nil {
+		a.updateInput(k)
+		return true
+	}
+
 	if a.playback != nil {
 		switch k.name {
 		case "alt+p":

@@ -10,6 +10,9 @@ import (
 )
 
 type app struct {
+	pendingUpdate                                  *tui.UpdateDialog
+	startUpdate                                    func(*tui.UpdateDialog)
+	updateDialog                                   *tui.UpdateDialog
 	demo, ready, open, composing, masked           bool
 	inlineImages                                   *tui.InlineImages
 	inlineLoading                                  bool
@@ -340,6 +343,12 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 
 				a.offset = 0
 			}
+		}
+	case "updateAvailable":
+		a.pendingUpdate = e.updateDialog
+	case "installUpdate":
+		if a.updateDialog == e.updateDialog {
+			a.updateDialog.Complete(e.updateError)
 		}
 	case "reactionAuthors":
 		if a.reactionAuthors != nil && a.reactionAuthors == e.reactionAuthors {

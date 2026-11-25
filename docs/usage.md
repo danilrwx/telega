@@ -106,3 +106,16 @@ Set `TUI_CHAT_STATUS_FILE` to a path in an existing directory to publish `unread
 Telega connects directly to Telegram over MTProto through [gotd](https://github.com/gotd/td). It stores credentials and the reusable session in private files under `${XDG_DATA_HOME:-$HOME/.local/share}/telega`. Notifications can show the sender or chat but omit the message text.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) to build or cross-compile for the Pomera DM250. Telega is licensed under [Apache 2.0](../LICENSE).
+
+## Updates
+
+Release builds check for a newer version in the background at startup. The update dialog offers **Install update**, **Later**, and **Don't show again**. Later asks again on the next launch; Don't show again disables automatic prompts. Development builds and the offline demo do not check for updates.
+
+Installation verifies the release archive's SHA-256 checksum and the downloaded binary's version before replacing the executable. Restart the client after installation. A failed update keeps the previous binary.
+
+Manual checks and installation remain available even after disabling prompts:
+
+```sh
+telega --check-update
+telega --update
+```
