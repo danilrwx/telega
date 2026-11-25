@@ -24,10 +24,10 @@ To join a chat opened by its public link, press `j`, then confirm with `y`. Priv
 
 ### Open `tg://` links from a browser on Linux
 
-To install Telega and make it the default `tg://` handler in one step, pass `--register-tg` to the installer. The option requires Linux with `xdg-mime`. Without it, the installer leaves the default handler unchanged.
+On Linux with `xdg-mime` (from `xdg-utils`), the installer automatically makes Telega the default `tg://` handler.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/danilrwx/telega/main/scripts/install.sh | sh -s -- --register-tg
+curl -fsSL https://raw.githubusercontent.com/danilrwx/telega/main/scripts/install.sh | sh
 ```
 
 For a local build, install the desktop entry from the repository, then set Telega as the default handler for `tg://`. The desktop session must be able to find `telega` on its `PATH`. If it cannot, replace `telega` in the `Exec=` line with the absolute path to your binary before setting the default.
@@ -97,7 +97,7 @@ Recording and playback need FFmpeg with PulseAudio support, including PipeWireâ€
 
 Open settings with `Alt+S`, move with `j` / `k` or the arrows, and change the selected setting with `Enter`. You can choose a full-width chat, show or hide names and avatars in direct messages, and right-align outgoing messages. Choices persist between sessions. Press `h` to return to the chat list.
 
-The text console uses ANSI colors and text reaction labels. Desktop integration supports clipboard images, system openers, and notifications where available. With bell monitoring enabled, tmux can highlight windows with new Telegram alerts.
+Interface colors come from the terminalâ€™s ANSI palette and follow changes to that palette immediately, without restarting Telega. Selection uses reverse video. The text console uses text reaction labels. Desktop integration supports clipboard images, system openers, and notifications where available. With bell monitoring enabled, tmux can highlight windows with new Telegram alerts.
 
 Set `TUI_CHAT_STATUS_FILE` to a path in an existing directory to publish `unread mentions` for a status bar. The counts cover the loaded dialog page, regardless of filters, and include chats marked unread manually. Telega updates the file while running, including when tmux is detached, and removes it when status is unavailable or on normal exit. With status publishing enabled inside tmux, Telega marks messages read automatically only when its pane is active in an attached session.
 

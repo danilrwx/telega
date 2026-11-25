@@ -81,9 +81,11 @@ func TestChatListSeparatesRowsAtMinimumWidth(t *testing.T) {
 	}
 }
 
-func TestDarkPaletteUsesANSIOnBasicTerminal(t *testing.T) {
+func TestPaletteUsesTerminalColors(t *testing.T) {
 	for _, colorTerm := range []string{"", "truecolor", "24bit"} {
-		a := app{ready: true, colors: choosePalette(true, colorTerm), chats: []chat{{title: "Ada"}}}
+		t.Setenv("COLORTERM", colorTerm)
+
+		a := app{ready: true, chats: []chat{{title: "Ada"}}}
 
 		var screen bytes.Buffer
 		if err := paint(&screen, &a, minTerminalCols, minTerminalRows); err != nil {
@@ -91,9 +93,8 @@ func TestDarkPaletteUsesANSIOnBasicTerminal(t *testing.T) {
 		}
 
 		out := screen.String()
-		if !strings.Contains(out, "›") || strings.Contains(out, "\x1b[7m") != (colorTerm == "") ||
-			strings.Contains(out, ansiDarkPalette.heading) != (colorTerm == "") ||
-			strings.Contains(out, "38;2;") != (colorTerm != "") || strings.Contains(out, "48;2;") != (colorTerm != "") {
+		if !strings.Contains(out, "›") || !strings.Contains(out, "\x1b[7m") ||
+			!strings.Contains(out, standardPalette.heading) || strings.Contains(out, "38;2;") || strings.Contains(out, "48;2;") {
 			t.Fatalf("wrong selection style for COLORTERM=%q: %q", colorTerm, out)
 		}
 	}

@@ -18,17 +18,47 @@ func (a *app) showReactionAuthors(out chan<- request) {
 
 	a.reactionAuthors = &tui.ReactionAuthors{Status: "Loading reactions…"}
 	out <- request{
-		kind: "reactionAuthors", chat: a.currentChat(), anchor: a.log[a.offset].id,
-		reactionAuthors: a.reactionAuthors, textReactions: a.textReactions,
+		kind: "reactionAuthors", chat: a.currentChat(), anchor: a.log[a.offset].id, text: a.log[a.offset].reactions,
+		reactionAuthors: a.reactionAuthors, textReactions: a.textReactions, recentReactions: a.log[a.offset].recentReactions,
 	}
 }
 
 func fetchReactionAuthors(ctx context.Context, req request,
 	fetch func(context.Context, *tg.MessagesGetMessageReactionsListRequest) (*tg.MessagesMessageReactionsList, error),
 	documents func(context.Context, []int64) ([]tg.DocumentClass, error),
+	refresh func(context.Context, []tg.InputMessageClass) (tg.MessagesMessagesClass, error),
 ) ([]string, string) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+
+	if req.chat.key.kind == 'u' && len(req.recentReactions) == 0 && req.text != "" {
+		result, err := refresh(ctx, []tg.InputMessageClass{&tg.InputMessageID{ID: req.anchor}})
+		if err != nil {
+			return nil, "Could not load reaction authors: " + err.Error()
+		}
+
+		data, ok := result.AsModified()
+		if !ok {
+			return nil, "Could not refresh reaction authors"
+		}
+
+		found := false
+
+		for _, raw := range data.GetMessages() {
+			if peer, msg, ok := unwrapMessage(raw); ok && peer == req.chat.key && msg.id == req.anchor {
+				req.recentReactions, req.text, found = msg.recentReactions, msg.reactions, true
+				break
+			}
+		}
+
+		if !found {
+			return nil, "Message is no longer available"
+		}
+
+		if len(req.recentReactions) == 0 && req.text != "" {
+			return nil, "Reaction authors are unavailable for this message"
+		}
+	}
 
 	query := &tg.MessagesGetMessageReactionsListRequest{Peer: req.chat.input, ID: req.anchor, Limit: 100}
 
@@ -45,7 +75,18 @@ func fetchReactionAuthors(ctx context.Context, req request,
 	customLabels := make(map[int64]string)
 
 	for {
-		page, err := fetch(ctx, query)
+		var (
+			page *tg.MessagesMessageReactionsList
+			err  error
+		)
+
+		if req.chat.key.kind == 'u' {
+			// Private chats include their reaction authors in the message itself.
+			page = &tg.MessagesMessageReactionsList{Reactions: req.recentReactions}
+		} else {
+			page, err = fetch(ctx, query)
+		}
+
 		if tgerr.Is(err, "BROADCAST_FORBIDDEN") {
 			return nil, "Telegram hides reaction authors in this channel"
 		}
@@ -68,6 +109,8 @@ func fetchReactionAuthors(ctx context.Context, req request,
 			switch {
 			case item.My:
 				name = "You"
+			case peer == req.chat.key && req.chat.title != "":
+				name = req.chat.title
 			case name == "":
 				name = fmt.Sprintf("Unknown author #%d", peer.id)
 			}

@@ -5,7 +5,6 @@ go 1.26.0
 require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/gotd/td v0.166.1
-	github.com/muesli/termenv v0.16.0
 	github.com/rivo/uniseg v0.4.7
 	golang.org/x/image v0.45.0
 	golang.org/x/sys v0.48.0
@@ -15,7 +14,6 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.2.1 // indirect
-	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

@@ -301,7 +301,7 @@ func TestMissingAvatarsRenderInitialsWithoutGraphics(t *testing.T) {
 	sender := peerKey{'u', 42}
 	name := "Иван Петров"
 	a := app{
-		ready: true, open: true, colors: &darkPalette,
+		ready: true, open: true,
 		chats: []chat{{key: peerKey{'c', 7}, title: "Group", group: true}},
 		log:   []message{{id: 1, text: "Hello", author: sender, authorName: name}},
 	}

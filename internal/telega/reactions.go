@@ -87,7 +87,8 @@ func reactionUpdates(events chan<- serverEvent) tg.MessageReactionsHandler {
 
 		e := serverEvent{
 			kind: "reactions", chat: keyFor(update.Peer), anchor: update.MsgID, text: text,
-			myReaction: chosenReaction(update.Reactions), reactionChoiceKnown: !update.Reactions.Min,
+			recentReactions: update.Reactions.RecentReactions,
+			myReaction:      chosenReaction(update.Reactions), reactionChoiceKnown: !update.Reactions.Min,
 			chosenReactions: reactionChoices(update.Reactions, true), messageReactions: reactionChoices(update.Reactions, false),
 		}
 		e.source = notificationSource(e.chat, entities)

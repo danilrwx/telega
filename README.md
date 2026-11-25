@@ -10,7 +10,7 @@
 curl -fsSL https://raw.githubusercontent.com/danilrwx/telega/main/scripts/install.sh | sh
 ```
 
-The installer picks the right build, checks its SHA-256 hash, and installs it to `~/.local/bin`. [Download an archive instead](https://github.com/danilrwx/telega/releases/latest).
+The installer picks the right build, checks its SHA-256 hash, and installs it to `~/.local/bin`. On Linux with `xdg-mime`, it also makes Telega the default `tg://` handler. [Download an archive instead](https://github.com/danilrwx/telega/releases/latest).
 
 ```sh
 ~/.local/bin/telega --demo

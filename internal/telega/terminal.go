@@ -78,8 +78,6 @@ func Run(opts Options) error {
 		defer func() { _ = os.RemoveAll(cfg.scratch) }()
 	}
 
-	dark := tui.DarkTheme()
-
 	state, err := term.MakeRaw(in)
 	if err != nil {
 		return err
@@ -143,13 +141,7 @@ func Run(opts Options) error {
 	a.console = slices.Contains([]string{"vt100", "vt220", "linux", "rcons-color", "wsvt25"}, os.Getenv("TERM"))
 	reactionMode := os.Getenv("TELEGA_REACTIONS")
 
-	colorTerm := os.Getenv("COLORTERM")
-	applyTheme := func(dark bool) {
-		a.colors = choosePalette(dark, colorTerm)
-		a.textReactions = reactionMode == "text" || reactionMode != "emoji" && (a.console || a.colors == &ansiDarkPalette)
-	}
-	applyTheme(dark)
-	themeChanges := tui.WatchDesktopTheme(ctx, dark)
+	a.textReactions = reactionMode == "text" || reactionMode != "emoji" && (a.console || os.Getenv("COLORTERM") == "")
 
 	noticeChecks := make(chan noticeCheck, 16)
 
@@ -314,12 +306,6 @@ func Run(opts Options) error {
 			a.finishVoicePlayback(err, false)
 		case <-presenceReady:
 		case <-chatStatusTick:
-		case dark, ok := <-themeChanges:
-			if ok {
-				applyTheme(dark)
-			} else {
-				themeChanges = nil
-			}
 		case <-historyReady:
 			a.flushChatHistory(requests)
 		case <-directoryReady:

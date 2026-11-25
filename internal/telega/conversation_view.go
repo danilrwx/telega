@@ -92,7 +92,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 			author = current.title
 		}
 
-		if colors != &standardPalette && msg.out {
+		if msg.out {
 			style = colors.outgoing
 		}
 

@@ -71,6 +71,7 @@ type message struct {
 	reactions, myReaction                   string
 	chosenReactions, messageReactions       []reactionChoice
 	hasReactions                            bool
+	recentReactions                         []tg.MessagePeerReaction
 }
 
 func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
@@ -97,7 +98,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 		}
 
 		return peer, message{
-			reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions,
+			reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions, recentReactions: reactions.RecentReactions,
 			chosenReactions: reactionChoices(reactions, true), messageReactions: reactionChoices(reactions, false),
 			poll: poll, pinned: msg.Pinned, comments: msg.Replies.Comments, commentCount: msg.Replies.Replies,
 			author: author, avatarPeer: avatarPeer, authorName: limitText(msg.PostAuthor, 80), protected: msg.Noforwards,
@@ -110,7 +111,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 
 		return keyFor(msg.PeerID), message{
 			service: true, topicStart: topicStart, id: msg.ID, text: "[Service message]", date: time.Unix(int64(msg.Date), 0),
-			out: msg.Out, reply: replyInfo(msg.ReplyTo), reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions,
+			out: msg.Out, reply: replyInfo(msg.ReplyTo), reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions, recentReactions: reactions.RecentReactions,
 			chosenReactions: reactionChoices(reactions, true), messageReactions: reactionChoices(reactions, false),
 		}, true
 	}
@@ -144,6 +145,7 @@ type request struct {
 	reactions           []reactionChoice
 	reactionDocument    int64
 	reactionAuthors     *tui.ReactionAuthors
+	recentReactions     []tg.MessagePeerReaction
 	textReactions       bool
 	messageSearch       *tui.MessageSearch
 	searchCursor        messageSearchCursor
@@ -184,6 +186,7 @@ type serverEvent struct {
 	reactionAuthor, reactionEmoji     string
 	reactionActor                     peerKey
 	reactionAuthors                   *tui.ReactionAuthors
+	recentReactions                   []tg.MessagePeerReaction
 	reactionAuthorRows                []string
 	reactionChoiceKnown               bool
 	playVoice                         bool
@@ -577,7 +580,7 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 				case "reactionAuthors":
 					go func(req request, value serverEvent) {
 						value.reactionAuthors = req.reactionAuthors
-						value.reactionAuthorRows, value.text = fetchReactionAuthors(ctx, req, api.MessagesGetMessageReactionsList, api.MessagesGetCustomEmojiDocuments)
+						value.reactionAuthorRows, value.text = fetchReactionAuthors(ctx, req, api.MessagesGetMessageReactionsList, api.MessagesGetCustomEmojiDocuments, api.MessagesGetMessages)
 						_ = emit(ctx, events, value)
 					}(req, value)
 

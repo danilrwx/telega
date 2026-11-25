@@ -27,28 +27,13 @@ func TestTerminalText(t *testing.T) {
 
 func TestNickColorAssignments(t *testing.T) {
 	for id, want := range map[string]NickColor{
-		"u:17":              {0x8D3F5E, 0xEEABC5, 35},
-		"u:18":              {0x255E84, 0x98CCEB, 36},
-		"loop-id-123456789": {0x38579B, 0xA4B8F5, 34},
+		"u:17":              {35},
+		"u:18":              {36},
+		"loop-id-123456789": {34},
 	} {
 		if got := ColorForNick(id); got != want {
 			t.Errorf("color for %q changed from %+v to %+v", id, want, got)
 		}
-	}
-}
-
-func TestThemeOverride(t *testing.T) {
-	t.Setenv("TELEGA_THEME", "dark")
-	t.Setenv("TUI_THEME", "light")
-
-	if DarkTheme() {
-		t.Fatal("shared setting should select the light palette")
-	}
-
-	t.Setenv("TUI_THEME", "")
-
-	if !DarkTheme() {
-		t.Fatal("legacy setting should select the dark palette")
 	}
 }
 

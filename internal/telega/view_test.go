@@ -50,21 +50,21 @@ func TestScreenPainterUpdatesDraftWithoutClearing(t *testing.T) {
 	}
 
 	a.edit(key{text: "\nNext line"})
-	draw(96, true)
+	draw(96, false)
 
 	a.log[0].text = "Updated message"
 
-	if frame := draw(96, true); !strings.Contains(frame, "Updated message") {
+	if frame := draw(96, false); !strings.Contains(frame, "Updated message") {
 		t.Fatalf("history change not drawn: %q", frame)
 	}
 
 	a.settingsOpen = true
 
-	draw(96, true)
+	draw(96, false)
 
 	a.settingsOpen = false
 
-	draw(96, true)
+	draw(96, false)
 	draw(97, true)
 	draw(97, false)
 }

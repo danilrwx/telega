@@ -11,7 +11,6 @@ import (
 
 type app struct {
 	demo, ready, open, composing, masked           bool
-	colors                                         *terminalPalette
 	inlineImages                                   *tui.InlineImages
 	inlineLoading                                  bool
 	layoutSettings                                 tui.LayoutSettings
@@ -374,6 +373,8 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 					a.log[index].reactions, a.log[index].hasReactions = e.text, true
 
 					a.log[index].messageReactions = e.messageReactions
+					a.log[index].recentReactions = e.recentReactions
+
 					if e.reactionChoiceKnown {
 						a.log[index].chosenReactions = e.chosenReactions
 						a.log[index].myReaction = e.myReaction
@@ -564,6 +565,7 @@ func (a *app) replaceLoadedMessage(i int, msg message) {
 	if !msg.hasReactions {
 		msg.reactions, msg.hasReactions, msg.myReaction = a.log[i].reactions, a.log[i].hasReactions, a.log[i].myReaction
 		msg.chosenReactions, msg.messageReactions = a.log[i].chosenReactions, a.log[i].messageReactions
+		msg.recentReactions = a.log[i].recentReactions
 	}
 
 	a.log[i] = msg

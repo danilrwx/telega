@@ -5,56 +5,9 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
-
-func TestDesktopThemeInTmuxFollowsThemeFile(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", config)
-	t.Setenv("TERM", "tmux-256color")
-	t.Setenv("TMUX", "")
-	t.Setenv("COLORFGBG", "")
-	t.Setenv("TUI_THEME", "")
-	t.Setenv("TELEGA_THEME", "")
-
-	dir := filepath.Join(config, "dotfiles", "theme")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	path := filepath.Join(dir, "name")
-	if err := os.WriteFile(path, []byte("light\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if DarkTheme() {
-		t.Fatal("expected a light theme inside tmux")
-	}
-
-	changes := WatchDesktopTheme(t.Context(), false)
-	if err := os.WriteFile(path, []byte("dark\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	select {
-	case dark, ok := <-changes:
-		if !ok || !dark {
-			t.Fatal("watcher did not pick up the dark theme")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("watcher did not report the theme change")
-	}
-
-	t.Setenv("TUI_THEME", "light")
-
-	if DarkTheme() || WatchDesktopTheme(t.Context(), false) != nil {
-		t.Fatal("manual theme should override the desktop theme")
-	}
-}
 
 func TestKittyImagePreviewUsesScopedGraphicsCommands(t *testing.T) {
 	t.Setenv("TMUX", "")

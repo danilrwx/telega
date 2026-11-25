@@ -28,10 +28,7 @@ register_tg() {
 }
 
 install_telega() {
-    enable_tg=false
-    if [ "$#" -eq 1 ] && [ "$1" = --register-tg ]; then
-        enable_tg=true
-    elif [ "$#" -ne 0 ]; then
+    if [ "$#" -ne 0 ] && { [ "$#" -ne 1 ] || [ "$1" != --register-tg ]; }; then
         printf '%s\n' 'Usage: install.sh [--register-tg]' >&2
         exit 2
     fi
@@ -43,11 +40,11 @@ install_telega() {
         *) printf '%s\n' 'Telega builds are available for Linux, macOS and OpenBSD.' >&2; exit 1 ;;
     esac
 
-    if [ "$enable_tg" = true ]; then
-        if [ "$os" != linux ] || ! command -v xdg-mime >/dev/null 2>&1; then
-            printf '%s\n' '--register-tg requires Linux and xdg-mime.' >&2
-            exit 1
-        fi
+    enable_tg=false
+    if [ "$os" = linux ] && command -v xdg-mime >/dev/null 2>&1; then
+        enable_tg=true
+    elif [ "$os" = linux ]; then
+        printf '%s\n' 'Install xdg-utils to register Telega as the default tg:// handler.' >&2
     fi
 
     case "$(uname -m)" in
@@ -96,7 +93,10 @@ install_telega() {
         esac
         case "$("$staged" --help)" in
             *'--open LINK'*) ;;
-            *) printf '%s\n' 'This release does not support tg:// links. Install without --register-tg or wait for the next release.' >&2; exit 1 ;;
+            *)
+                printf '%s\n' 'This release does not support tg:// links; handler registration skipped.' >&2
+                enable_tg=false
+                ;;
         esac
     fi
     mv -f "$staged" "$bin/telega"

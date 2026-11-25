@@ -57,7 +57,7 @@ func TestReactionAuthorsPaginationAndDialog(t *testing.T) {
 		return []tg.DocumentClass{&tg.Document{
 			ID: 42, Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeCustomEmoji{Alt: "⭐"}},
 		}}, nil
-	})
+	}, nil)
 	if calls != 2 || status != "" || !slices.Equal(rows, []string{"⭐ Custom emoji 42  Mira Chen", "👀  Mira Chen", "👍  You"}) {
 		t.Fatalf("unexpected reaction authors: %v, status %q, %d requests", rows, status, calls)
 	}
@@ -83,8 +83,95 @@ func TestReactionAuthorsPaginationAndDialog(t *testing.T) {
 func TestReactionAuthorsRespectBroadcastPrivacy(t *testing.T) {
 	rows, status := fetchReactionAuthors(t.Context(), request{}, func(_ context.Context, _ *tg.MessagesGetMessageReactionsListRequest) (*tg.MessagesMessageReactionsList, error) {
 		return nil, tgerr.New(403, "BROADCAST_FORBIDDEN")
-	}, nil)
+	}, nil, nil)
 	if len(rows) != 0 || !strings.Contains(status, "Telegram hides reaction authors") {
 		t.Fatalf("expected an anonymous channel status, got %v %q", rows, status)
+	}
+}
+
+func TestReactionAuthorsInPrivateChat(t *testing.T) {
+	peer := &tg.PeerUser{UserID: 7}
+	raw := &tg.Message{ID: 12, PeerID: peer}
+	raw.SetReactions(tg.MessageReactions{RecentReactions: []tg.MessagePeerReaction{
+		{PeerID: peer, Reaction: &tg.ReactionEmoji{Emoticon: "👀"}},
+		{My: true, PeerID: &tg.PeerUser{UserID: 1}, Reaction: &tg.ReactionEmoji{Emoticon: "👍"}},
+	}})
+	_, msg, _ := unwrapMessage(raw)
+	a := app{open: true, ready: true, chats: []chat{{key: peerKey{'u', 7}, title: "Mira"}}, log: []message{msg}}
+	out := make(chan request, 1)
+
+	check := func(want []string) {
+		t.Helper()
+		a.showReactionAuthors(out)
+
+		rows, status := fetchReactionAuthors(t.Context(), <-out, func(context.Context, *tg.MessagesGetMessageReactionsListRequest) (*tg.MessagesMessageReactionsList, error) {
+			t.Fatal("private chats must not request the reaction authors list")
+			return nil, nil
+		}, nil, nil)
+		if status != "" || !slices.Equal(rows, want) {
+			t.Fatalf("reaction authors: %v, status %q; want %v", rows, status, want)
+		}
+	}
+
+	check([]string{"👀  Mira", "👍  You"})
+	a.replaceLoadedMessage(0, message{id: 12, text: "Edited"})
+	check([]string{"👀  Mira", "👍  You"})
+
+	events := make(chan serverEvent, 1)
+
+	err := reactionUpdates(events)(t.Context(), tg.Entities{}, &tg.UpdateMessageReactions{
+		Peer: peer, MsgID: 12, Reactions: tg.MessageReactions{RecentReactions: []tg.MessagePeerReaction{
+			{PeerID: peer, Reaction: &tg.ReactionEmoji{Emoticon: "🔥"}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a.receive(out, <-events)
+	check([]string{"🔥  Mira"})
+
+	a.log[0].recentReactions = nil
+
+	check(nil)
+}
+
+func TestReactionAuthorsRefreshIncompletePrivateMessage(t *testing.T) {
+	peer := peerKey{'u', 7}
+	a := app{ready: true, open: true, chats: []chat{{key: peer, title: "Mira"}}, log: []message{{
+		id: 12, reactions: "👍 1", hasReactions: true,
+		recentReactions: []tg.MessagePeerReaction{{PeerID: &tg.PeerUser{UserID: 7}, Reaction: &tg.ReactionEmoji{Emoticon: "👍"}}},
+	}}}
+	a.receive(nil, serverEvent{kind: "reactions", chat: peer, anchor: 12, text: "👍 1"})
+
+	out := make(chan request, 1)
+	a.showReactionAuthors(out)
+	req := <-out
+
+	for _, scenario := range []struct {
+		name      string
+		reactions tg.MessageReactions
+		want      []string
+		status    string
+	}{
+		{"refreshed", tg.MessageReactions{Results: []tg.ReactionCount{{Reaction: &tg.ReactionEmoji{Emoticon: "👍"}, Count: 1}}, RecentReactions: []tg.MessagePeerReaction{{PeerID: &tg.PeerUser{UserID: 7}, Reaction: &tg.ReactionEmoji{Emoticon: "👍"}}}}, []string{"👍  Mira"}, ""},
+		{"still incomplete", tg.MessageReactions{Results: []tg.ReactionCount{{Reaction: &tg.ReactionEmoji{Emoticon: "👍"}, Count: 1}}}, nil, "Reaction authors are unavailable for this message"},
+		{"removed", tg.MessageReactions{}, nil, ""},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			rows, status := fetchReactionAuthors(t.Context(), req, nil, nil, func(_ context.Context, ids []tg.InputMessageClass) (tg.MessagesMessagesClass, error) {
+				if len(ids) != 1 || ids[0].(*tg.InputMessageID).ID != 12 {
+					t.Fatalf("wrong message requested: %v", ids)
+				}
+
+				msg := &tg.Message{ID: 12, PeerID: &tg.PeerUser{UserID: 7}}
+				msg.SetReactions(scenario.reactions)
+
+				return &tg.MessagesMessages{Messages: []tg.MessageClass{msg}}, nil
+			})
+			if status != scenario.status || !slices.Equal(rows, scenario.want) {
+				t.Fatalf("authors: %v, status %q; want %v, %q", rows, status, scenario.want, scenario.status)
+			}
+		})
 	}
 }

@@ -199,6 +199,11 @@ func kittyCommand(command string) string {
 	return prefix + command + suffix
 }
 
+func multiplexedTerminal() bool {
+	term := os.Getenv("TERM")
+	return strings.HasPrefix(term, "tmux") || strings.HasPrefix(term, "screen")
+}
+
 // KittyPassthrough reports whether graphics writes must be wrapped for tmux.
 func KittyPassthrough() bool { return os.Getenv("TMUX") != "" && multiplexedTerminal() }
 

@@ -33,16 +33,7 @@ func shortSender(title string, width int) string {
 
 const minTerminalCols, minTerminalRows = 24, 7
 
-// screenPainter remembers the last frame that can be updated in place.
-type screenPainter struct {
-	base       string
-	cols, rows int
-}
-
 func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
-	previous := *p
-	*p = screenPainter{}
-
 	var b strings.Builder
 	b.WriteString("\x1b[?25l\x1b[2J")
 
@@ -50,11 +41,15 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 	a.noticeStatusVisible = false
 
 	if a.imagePreview != nil {
-		if _, err := io.WriteString(w, "\x1b[?25l"); err != nil {
-			return err
-		}
+		*p = screenPainter{}
 
-		return a.imagePreview.WritePreview(w, a.imagePreviewTitle, cols, rows, a.imagePreviewPath != "")
+		return synchronizedOutput(w, func() error {
+			if _, err := io.WriteString(w, "\x1b[?25l"); err != nil {
+				return err
+			}
+
+			return a.imagePreview.WritePreview(w, a.imagePreviewTitle, cols, rows, a.imagePreviewPath != "")
+		})
 	}
 
 	if cols < minTerminalCols || rows < minTerminalRows {
@@ -62,9 +57,7 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 			a.attachmentGallery.columns = 0
 		}
 
-		_, err := io.WriteString(w, b.String()+"\x1b[HResize your terminal")
-
-		return err
+		return p.writeFrame(w, b.String()+"\x1b[HResize your terminal", cols, rows)
 	}
 
 	label := func(x, y, width int, value string) {
@@ -75,9 +68,7 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 		a.paintAttachmentGallery(&b, label, cols, rows)
 		paintDialogPopup(&b, a.dialogPopup(cols, rows))
 
-		_, err := io.WriteString(w, b.String())
-
-		return err
+		return p.writeFrame(w, b.String(), cols, rows)
 	}
 
 	if len(a.topicEntries) > 0 {
@@ -100,9 +91,7 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 
 		label(2, rows-1, cols-2, status)
 
-		_, err := io.WriteString(w, b.String())
-
-		return err
+		return p.writeFrame(w, b.String(), cols, rows)
 	}
 
 	keys := "Esc quit"
@@ -523,20 +512,13 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 			b.WriteString("\x1b[0m")
 		}
 
-		base := b.Len()
-
 		for i, line := range draftLines {
 			y := draftTop + i
 
 			if a.composing {
 				// Overwrite the whole draft row without erasing the sidebar or
-				// leaving old characters or the old cursor row's background.
-				style := "\x1b[0m"
-				if y == cursorRow && colors.draftRow != "" {
-					style = colors.draftRow
-				}
-
-				fmt.Fprintf(&b, "\x1b[%d;%dH%s%s", y, composerLeft, style, strings.Repeat(" ", tui.ComposerIndent))
+				// leaving old characters.
+				fmt.Fprintf(&b, "\x1b[%d;%dH\x1b[0m%s", y, composerLeft, strings.Repeat(" ", tui.ComposerIndent))
 			} else if emptyDraft {
 				b.WriteString(colors.muted)
 			}
@@ -552,22 +534,6 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 
 		if a.composing {
 			fmt.Fprintf(&b, "\x1b[%d;%dH\x1b[?25h", cursorRow, cursorX)
-
-			if len(popup.Lines) == 0 {
-				frame := b.String()
-
-				next := screenPainter{base: frame[:base], cols: cols, rows: rows}
-				if next == previous {
-					frame = frame[base:]
-				}
-
-				_, err := io.WriteString(w, frame)
-				if err == nil {
-					*p = next
-				}
-
-				return err
-			}
 		}
 	} else if prompt != "" {
 		prefix := tui.Wrap(prompt+" > ", cols-4, 1)[0]
@@ -602,9 +568,7 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 
 	paintDialogPopup(&b, popup)
 
-	_, err := io.WriteString(w, b.String())
-
-	return err
+	return p.writeFrame(w, b.String(), cols, rows)
 }
 
 func paintDialogPopup(b *strings.Builder, popup tui.DialogPopup) {
