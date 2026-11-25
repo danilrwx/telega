@@ -34,6 +34,8 @@ func readKeys(ctx context.Context, fd int, in io.Reader, out chan<- key, keyDone
 			k.name = "ctrl+a"
 		case 6:
 			k.name = "messageSearch"
+		case 7:
+			k.name = "cancelReply"
 		case 5:
 			k.name = "ctrl+e"
 		case 2:

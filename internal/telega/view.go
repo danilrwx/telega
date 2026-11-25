@@ -178,6 +178,10 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 	if a.pickingReaction {
 		reactionPrompt = "Choose a reaction · select it again to remove"
 
+		if a.replyID != 0 {
+			keys = "Ctrl+G cancel reply  " + keys
+		}
+
 		if len(a.log) > 0 && a.log[a.offset].myReaction != "" {
 			chosen := a.log[a.offset].myReaction
 			if a.textReactions {

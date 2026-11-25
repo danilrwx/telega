@@ -393,6 +393,14 @@ func (a *app) input(k key, out chan<- request) bool {
 			a.edit(k)
 		}
 
+		case "cancelReply":
+			if a.replyID != 0 {
+				a.clearReply()
+
+				if a.retrySend != nil {
+					a.retrySend, a.status = nil, ""
+				}
+			}
 		return true
 	}
 
