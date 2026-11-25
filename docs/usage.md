@@ -24,7 +24,13 @@ To join a chat opened by its public link, press `j`, then confirm with `y`. Priv
 
 ### Open `tg://` links from a browser on Linux
 
-Install the desktop entry from the repository, then set Telega as the default handler for `tg://`. The desktop session must be able to find `telega` on its `PATH`. If it cannot, replace `telega` in the `Exec=` line with the absolute path to your binary before setting the default.
+To install Telega and make it the default `tg://` handler in one step, pass `--register-tg` to the installer. The option requires Linux with `xdg-mime`. Without it, the installer leaves the default handler unchanged.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/danilrwx/telega/main/scripts/install.sh | sh -s -- --register-tg
+```
+
+For a local build, install the desktop entry from the repository, then set Telega as the default handler for `tg://`. The desktop session must be able to find `telega` on its `PATH`. If it cannot, replace `telega` in the `Exec=` line with the absolute path to your binary before setting the default.
 
 ```sh
 install -Dm644 contrib/telega.desktop "${XDG_DATA_HOME:-$HOME/.local/share}/applications/telega.desktop"
