@@ -164,6 +164,11 @@ func (a *app) input(k key, out chan<- request) bool {
 		}
 	}
 
+	if a.pins != nil {
+		a.pinsInput(k, out)
+		return true
+	}
+
 	if a.chatActions != nil {
 		a.chatActionsInput(k, out)
 		return true

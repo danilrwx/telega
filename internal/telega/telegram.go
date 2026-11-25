@@ -64,7 +64,7 @@ type message struct {
 	attachment                              *attachment
 	spans                                   []textSpan
 	mentioned, topicStart                   bool
-	comments                                bool
+	comments, pinned                        bool
 	commentCount                            int
 	reactions, myReaction                   string
 	chosenReactions, messageReactions       []reactionChoice
@@ -93,7 +93,7 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 		return peer, message{
 			reactions: reactionSummary(reactions), myReaction: chosenReaction(reactions), hasReactions: hasReactions,
 			chosenReactions: reactionChoices(reactions, true), messageReactions: reactionChoices(reactions, false),
-			comments: msg.Replies.Comments, commentCount: msg.Replies.Replies,
+			pinned: msg.Pinned, comments: msg.Replies.Comments, commentCount: msg.Replies.Replies,
 			author: author, avatarPeer: avatarPeer, authorName: limitText(msg.PostAuthor, 80), protected: msg.Noforwards,
 			id: msg.ID, text: text, date: time.Unix(int64(msg.Date), 0), edited: msg.EditDate > 0 && !msg.EditHide,
 			out: msg.Out, reply: replyInfo(msg.ReplyTo), forward: forwardInfo(msg.FwdFrom), attachment: fileFromMedia(msg.Media), spans: spans, links: messageLinks(text, msg.Entities, spans), mentioned: msg.Mentioned,
@@ -113,6 +113,8 @@ func unwrapMessage(value tg.MessageClass) (peerKey, message, bool) {
 }
 
 type request struct {
+	pins                *pinDialog
+	pinState            bool
 	historyID, searchID uint64
 	historyCtx          context.Context
 	page                dialogPage
@@ -143,6 +145,8 @@ type request struct {
 }
 
 type serverEvent struct {
+	pins                              *pinDialog
+	pinState                          bool
 	historyID, searchID               uint64
 	accountID                         int64
 	avatar                            *attachment
@@ -366,6 +370,7 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 			kind: "presence", chat: peerKey{'u', update.UserID}, presence: update.Status,
 		})
 	})
+	registerPinUpdates(dispatch, events)
 	dispatch.OnNotifySettings(func(context.Context, tg.Entities, *tg.UpdateNotifySettings) error {
 		notifyChanged.Store(true)
 
@@ -466,6 +471,12 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 				case "chats":
 					value.page = req.page
 					value.chats, value.page.next, err = loadDialogPage(ctx, api, req.page)
+				case "listPins":
+					go func() { _ = emit(ctx, events, runPinsRequest(ctx, api, req)) }()
+
+					continue
+				case "setPin":
+					value = runPinsRequest(ctx, api, req)
 				case "toggleChatPin":
 					err = toggleChatPin(ctx, api, req)
 

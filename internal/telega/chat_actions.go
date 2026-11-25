@@ -36,6 +36,18 @@ func (a *app) beginChatActions() {
 		d.items = append(d.items, chatAction{"copyChatLink", "Copy public chat link"})
 	}
 
+	if a.open {
+		d.items = append([]chatAction{{"listPins", "Pinned messages"}}, d.items...)
+		if len(a.log) > 0 && !a.log[a.offset].service {
+			pin := chatAction{"pinMessage", "Pin selected message"}
+			if a.log[a.offset].pinned {
+				pin = chatAction{"unpinMessage", "Unpin selected message"}
+			}
+
+			d.items = append(d.items, pin)
+		}
+	}
+
 	a.chatActions = d
 }
 
@@ -54,7 +66,14 @@ func (a *app) chatActionsInput(k key, out chan<- request) {
 		a.chatActions = nil
 
 		code := d.items[d.selected].code
-		if code == "copyChatLink" {
+		switch code {
+		case "listPins":
+			a.showPins(out)
+			return
+		case "pinMessage", "unpinMessage":
+			a.pinSelected(out, code == "pinMessage")
+			return
+		case "copyChatLink":
 			a.copyText = "https://t.me/" + url.PathEscape(d.chat.username)
 			return
 		}

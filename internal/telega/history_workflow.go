@@ -161,7 +161,7 @@ func (a *app) jumpToUnread(out chan<- request) {
 }
 
 func (a *app) prefetchHistory(out chan<- request) {
-	if a.chatActions != nil || !a.open || a.demo || a.composing || a.filePicker != nil || a.textAttachmentPrompt != nil || a.searching || a.messageSearch != nil ||
+	if a.pins != nil || a.chatActions != nil || !a.open || a.demo || a.composing || a.filePicker != nil || a.textAttachmentPrompt != nil || a.searching || a.messageSearch != nil ||
 		len(a.topicEntries) > 0 || a.forwardIDs != nil || a.chatPicker || a.confirmDelete != nil || a.linkChoices != nil ||
 		a.pending != "" || a.prefetching || a.authorLookup || a.autoReadPending || a.olderEnd || a.historyRoom <= 0 || len(a.log) == 0 ||
 		len(a.log)+historyLimit-historyWindow > a.offset {

@@ -122,6 +122,7 @@ type app struct {
 	voiceRequested                                 bool
 	voice                                          *voiceRecording
 	playback                                       *voicePlayback
+	pins                                           *pinDialog
 	chatActions                                    *chatActionDialog
 	transcript                                     *voiceTranscript
 	voiceTranscripts                               map[chatPosition]*voiceTranscript
@@ -179,6 +180,8 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 		a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder, cursor: a.dialogPage.cursor}})
 	case "chats":
 		a.receiveDialogs(out, e)
+	case "listPins", "setPin", "pinnedMessages":
+		a.receivePins(e)
 	case "toggleChatMute":
 		a.pending, a.status = "", e.text
 	case "toggleChatPin":

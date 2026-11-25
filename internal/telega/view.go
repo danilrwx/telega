@@ -615,7 +615,7 @@ func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
 		return tui.DialogPopup{}
 	}
 
-	if a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 && a.chatActions == nil {
+	if a.transcript == nil && !a.settingsOpen && a.filePicker == nil && a.textAttachmentPrompt == nil && a.attachmentTitle == "" && a.reactionAuthors == nil && len(a.confirmDelete) == 0 && a.forwardIDs == nil && a.messageSearch == nil && !a.chatPicker && !a.reactionPickerOpen && len(a.linkChoices) == 0 && a.chatActions == nil && a.pins == nil {
 		return tui.DialogPopup{}
 	}
 
@@ -663,6 +663,8 @@ func (a *app) dialogPopup(cols, rows int) tui.DialogPopup {
 
 	content := func(width, height int, row func(string, bool, bool, bool)) {
 		switch {
+		case a.pins != nil:
+			a.drawPins(width, height, row)
 		case a.chatActions != nil:
 			a.chatActions.render(width, height, row)
 		case a.transcript != nil:
