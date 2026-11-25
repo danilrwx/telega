@@ -119,14 +119,8 @@ func (a *app) messageJumpHints() string {
 		}
 	}
 
-	if a.thread == nil {
-		if a.currentChat().forum {
-			hints = append(hints, "t topics")
-		}
-
-		if len(a.log) > 0 && a.log[a.offset].comments {
-			hints = append(hints, fmt.Sprintf("c comments (%d)", a.log[a.offset].commentCount))
-		}
+	if a.thread == nil && a.currentChat().forum {
+		hints = append(hints, "t topics")
 	}
 
 	return strings.Join(hints, "   ")
@@ -172,6 +166,11 @@ func (a *app) replyLabel(reply messageReply, width int) string {
 }
 
 func (a *app) messageLines(msg message, width, limit int) []string {
+	showComments := !a.demo && a.thread == nil && msg.comments && limit > 1
+	if showComments {
+		limit--
+	}
+
 	showReactions := msg.reactions != "" && limit > 1
 	if showReactions {
 		limit--
@@ -224,6 +223,11 @@ func (a *app) messageLines(msg message, width, limit int) []string {
 	lines = append(lines, thumbnail...)
 	if showReactions {
 		lines = append(lines, a.palette().reaction+a.inlineReactionLine(msg, width)+"\x1b[0m")
+	}
+
+	if showComments {
+		label := fmt.Sprintf("[c] Comments (%d)", msg.commentCount)
+		lines = append(lines, a.palette().muted+tui.Clip(label, width)+"\x1b[0m")
 	}
 
 	return lines

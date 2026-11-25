@@ -122,6 +122,9 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 		keys = "jk move  Ctrl+N/P chats  i write  a attach  z react  Z authors  r reply  V gallery  ? messages"
 		if a.thread != nil {
 			keys = "jk move  h back  i write  a attach  z react  Z authors  r reply  V gallery  ? messages"
+			if a.thread.threadKind == commentThread {
+				keys = "i comment  r reply  h back  jk move  a attach  z react  Z authors  V gallery  ? messages"
+			}
 		} else if a.display.HideChatListWhenOpen {
 			keys = "h chats  " + keys
 		}
@@ -136,6 +139,10 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 
 		if a.pending == "" && len(a.log) > 0 && a.log[a.offset].editable() {
 			keys = "e edit  " + keys
+		}
+
+		if !a.demo && a.thread == nil && len(a.log) > 0 && a.log[a.offset].comments {
+			keys = "c comments  " + keys
 		}
 	}
 
@@ -170,6 +177,10 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 		if a.editID == 0 {
 			keys = strings.Replace(keys, "Ctrl+X editor", "Alt+V voice  Alt+A attach  Alt+T text file  Ctrl+O draft files  Ctrl+X editor", 1)
 		}
+
+		if a.replyID != 0 {
+			keys = "Ctrl+G cancel reply  " + keys
+		}
 	}
 
 	reactionPrompt := ""
@@ -177,10 +188,6 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 	reactionSuggestion := a.reactionSuggestionRow(cols - 2)
 	if a.pickingReaction {
 		reactionPrompt = "Choose a reaction · select it again to remove"
-
-		if a.replyID != 0 {
-			keys = "Ctrl+G cancel reply  " + keys
-		}
 
 		if len(a.log) > 0 && a.log[a.offset].myReaction != "" {
 			chosen := a.log[a.offset].myReaction
@@ -264,8 +271,13 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 			composerLabel = "Edit"
 		} else if saved.upload != nil {
 			composerLabel = "Caption"
-		} else if saved.replyID != 0 || a.thread != nil {
+		} else if saved.replyID != 0 {
 			composerLabel = "Reply"
+		} else if a.thread != nil {
+			composerLabel = "Reply"
+			if a.thread.threadKind == commentThread {
+				composerLabel = "Comment"
+			}
 		}
 
 		if saved.upload != nil {

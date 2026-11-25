@@ -189,8 +189,13 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 		}
 
 		right := direct && a.display.DMRight && msg.out && !msg.service
-		messageWidth := bodyWidth
 
+		indent := 0
+		if bodyWidth > 12 && current.isCommentReply(msg) {
+			indent = 2
+		}
+
+		messageWidth := bodyWidth - indent
 		if right {
 			messageWidth = min(bodyWidth, max(18, bodyWidth*2/3))
 		}
@@ -236,7 +241,7 @@ func (a *app) paintConversation(b *strings.Builder, label func(int, int, int, st
 		author = tui.Wrap(author, max(1, headerWidth-markWidth), 1)[0]
 		authorWidth := uniseg.StringWidth(author)
 
-		blockLeft := left
+		blockLeft := left + indent
 
 		if right {
 			extent := 5 + avatarOffset

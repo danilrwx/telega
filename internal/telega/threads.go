@@ -52,6 +52,12 @@ func (c chat) includesMessage(msg message) bool {
 	}
 }
 
+// isCommentReply distinguishes replies to a comment from comments on the post.
+func (c chat) isCommentReply(msg message) bool {
+	return c.threadKind == commentThread && msg.id != c.threadID && msg.reply.id > 0 && msg.reply.id != c.threadID &&
+		(msg.reply.peer.id == 0 || msg.reply.peer == c.key)
+}
+
 func loadTopics(ctx context.Context, api *tg.Client, req request) ([]chat, topicCursor, error) {
 	cursor := req.topics.cursor
 

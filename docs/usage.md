@@ -39,6 +39,10 @@ In the draft attachment list, use `a` to add, `e` to edit a copy, `d` to remove,
 
 ![The file picker showing completion results and a selected Markdown file](demo-file-picker.png)
 
+## Channel comments
+
+Select a channel post marked `[c] Comments` and press `c` to open its discussion. Press `i` to write a comment on the post, or select a comment and press `r` to reply to it. Press `Enter` to send. Replies to comments appear indented, and `J` jumps to the message they reply to. Press `h` or `Esc` outside the composer to return to the post.
+
 ## Media and reactions
 
 - **Gallery** — `V` opens the chat’s full media history. `Tab` switches between media, files, links, music, and voice messages. Move with the arrows or `hjkl`, load older items with `PgDn`, open with `Enter`, or jump to the message with `g`.
