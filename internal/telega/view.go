@@ -147,6 +147,10 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 	}
 
 	if a.ready && !a.open {
+		if len(a.dialogFilters) > 0 {
+			keys = strings.Replace(keys, "Tab archive", "Tab folders", 1)
+		}
+
 		keys = "x actions  " + keys + "  Alt+S settings"
 	}
 
@@ -367,7 +371,9 @@ func (p *screenPainter) paint(w io.Writer, a *app, cols, rows int) error {
 
 		if wide || !a.open {
 			title, shortcut := a.dialogTitle(), "Tab Archive"
-			if a.dialogPage.folder == 1 {
+			if len(a.dialogFilters) > 0 {
+				shortcut = "Tab folders"
+			} else if a.dialogPage.folder == 1 {
 				shortcut = "Tab Chats"
 			}
 

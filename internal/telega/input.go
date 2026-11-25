@@ -499,6 +499,7 @@ func (a *app) input(k key, out chan<- request) bool {
 					a.leaveThread(out)
 				} else {
 					a.resetChat()
+					a.clearFolderPickerChat()
 				}
 			}
 		case "enter":
@@ -612,10 +613,16 @@ func (a *app) input(k key, out chan<- request) bool {
 	}
 
 	switch k.name {
-	case "tab":
+	case "tab", "shift+tab":
 		if !a.demo && a.pending == "" {
 			a.chatQuery = ""
-			a.ask(out, request{kind: "chats", page: dialogPage{folder: 1 - a.dialogPage.folder}})
+
+			step := 1
+			if k.name == "shift+tab" {
+				step = -1
+			}
+
+			a.cycleDialogFolder(out, step)
 		}
 	case "escape":
 		if a.chatQuery != "" {
@@ -655,11 +662,11 @@ func (a *app) input(k key, out chan<- request) bool {
 			a.unreadOnly, a.status = !a.unreadOnly, ""
 		case "r":
 			if !a.demo && a.pending == "" {
-				a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder}})
+				a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder, filter: a.dialogPage.filter}})
 			}
 		case "A":
 			if !a.demo && a.pending == "" && slices.Contains(a.visibleChats(), a.selected) {
-				a.ask(out, request{kind: "archiveChat", chat: a.currentChat(), page: dialogPage{folder: a.dialogPage.folder}})
+				a.ask(out, request{kind: "archiveChat", chat: a.currentChat(), page: dialogPage{folder: a.currentChat().folder}})
 			}
 		case "]":
 			a.pageDialogs(out, 1)

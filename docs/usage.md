@@ -8,7 +8,8 @@
 | --- | --- |
 | `j` / `k`, `l` / `h` | Move, open, and go back |
 | `Ctrl+N` / `Ctrl+P` | Switch chats |
-| `f`, `Tab` in the chat list | Filter unread chats or switch to the archive |
+| `f` in the chat list | Filter unread chats |
+| `Tab` / `Shift+Tab` in the chat list | Move between Chats, Archive, and Telegram folders |
 | `Ctrl+K` | Find a chat by its display name or `@username`, including archived chats |
 | `?` / `Ctrl+F` | Search this chat or topic / all chats |
 | `Tab`, `Shift+Tab` in search | Change the scope or cycle through messages, photos, files, links, and voice messages |

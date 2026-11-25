@@ -57,12 +57,18 @@ func (a *app) chatPickerInput(k key, out chan<- request) {
 		if a.open {
 			a.parkDraft()
 			a.resetChat()
+			a.clearFolderPickerChat()
+			index = slices.IndexFunc(a.chats, func(c chat) bool { return c.key == match.key })
 		}
 
 		a.closeChatPicker()
 
 		if index < 0 {
 			a.chats = append([]chat{match}, a.chats...)
+			if a.dialogPage.filter != nil {
+				a.folderPickerChat = match.key
+			}
+
 			index = 0
 		}
 
@@ -81,6 +87,24 @@ func (a *app) chatPickerInput(k key, out chan<- request) {
 		}, k.text)
 		a.setChatPickerQuery(limitText(a.chatQuery+text, 128))
 	}
+}
+
+// The global picker can open a chat outside a custom folder's current page.
+// Keep that chat only for the duration of the conversation.
+func (a *app) clearFolderPickerChat() {
+	if a.folderPickerChat.kind == 0 {
+		return
+	}
+
+	if index := slices.IndexFunc(a.chats, func(c chat) bool { return c.key == a.folderPickerChat }); index >= 0 {
+		a.chats = slices.Delete(a.chats, index, index+1)
+		if a.selected > index {
+			a.selected--
+		}
+		a.selected = min(a.selected, max(0, len(a.chats)-1))
+	}
+
+	a.folderPickerChat = peerKey{}
 }
 
 func (a *app) setChatPickerQuery(query string) {
@@ -164,7 +188,7 @@ func streamChatDirectory(ctx context.Context, api *tg.Client, events chan<- serv
 				}
 			}
 
-			if next.input == nil || next.id == page.cursor.id && next.date == page.cursor.date {
+			if !next.available() {
 				break
 			}
 

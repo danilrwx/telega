@@ -19,6 +19,7 @@ import (
 const chatLimit, historyLimit, inputLimit = 96, 48, 4096
 
 type chat struct {
+	folder                  int
 	group, protected, forum bool
 	threadKind              threadKind
 	threadID                int
@@ -150,6 +151,7 @@ type request struct {
 }
 
 type serverEvent struct {
+	dialogFilters                     []dialogFilter
 	poll                              *pollUpdate
 	pollRequest                       *pollRequest
 	pins                              *pinDialog
@@ -479,6 +481,15 @@ func telegramLoop(ctx context.Context, cfg config, qrMode bool, requests <-chan 
 
 				switch req.kind {
 				case "chats":
+					if req.page.step == 0 {
+						go func() {
+							filters, loadErr := loadDialogFilters(ctx, api)
+							if loadErr == nil {
+								_ = emit(ctx, events, serverEvent{kind: "dialogFilters", dialogFilters: filters})
+							}
+						}()
+					}
+
 					value.page = req.page
 					value.chats, value.page.next, err = loadDialogPage(ctx, api, req.page)
 				case "pollResults", "pollVote":

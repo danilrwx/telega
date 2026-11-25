@@ -11,12 +11,15 @@ import (
 
 type dialogCursor struct {
 	input    tg.InputPeerClass
+	key      peerKey
 	id, date int
+	custom   *folderCursor
 }
 
 type dialogPage struct {
 	folder, step int
 	cursor, next dialogCursor
+	filter       *dialogFilter
 }
 
 func peerChats(users []tg.UserClass, groups []tg.ChatClass) map[peerKey]chat {
@@ -54,29 +57,31 @@ func peerChats(users []tg.UserClass, groups []tg.ChatClass) map[peerKey]chat {
 	return peers
 }
 
-func loadDialogPage(ctx context.Context, api *tg.Client, page dialogPage) ([]chat, dialogCursor, error) {
-	query := &tg.MessagesGetDialogsRequest{Limit: chatLimit, OffsetPeer: &tg.InputPeerEmpty{}}
-	query.SetFolderID(page.folder)
+type dialogEntry struct {
+	chat
+	category        folderCategory
+	date, muteUntil int
+	muteSet         bool
+}
 
-	if page.cursor.input != nil {
-		query.OffsetPeer, query.OffsetID, query.OffsetDate = page.cursor.input, page.cursor.id, page.cursor.date
-		query.ExcludePinned = true
+func parseDialogEntries(dialogs []tg.DialogClass, users []tg.UserClass, groups []tg.ChatClass, msgs []tg.MessageClass, nativeFolder int) []dialogEntry {
+	peers := peerChats(users, groups)
+	categories := make(map[peerKey]folderCategory, len(users))
+	for _, item := range users {
+		if u, ok := item.(*tg.User); ok {
+			kind := folderNonContacts
+			switch {
+			case u.Bot:
+				kind = folderBots
+			case u.Contact || u.Self:
+				kind = folderContacts
+			}
+			categories[peerKey{'u', u.ID}] = kind
+		}
 	}
 
-	result, err := api.MessagesGetDialogs(ctx, query)
-	if err != nil {
-		return nil, dialogCursor{}, err
-	}
-
-	data, ok := result.AsModified()
-	if !ok {
-		return nil, dialogCursor{}, nil
-	}
-
-	peers := peerChats(data.GetUsers(), data.GetChats())
-
-	dates := make(map[chatPosition]int, len(data.GetMessages()))
-	for _, raw := range data.GetMessages() {
+	dates := make(map[chatPosition]int, len(msgs))
+	for _, raw := range msgs {
 		switch m := raw.(type) {
 		case *tg.Message:
 			dates[chatPosition{chat: keyFor(m.PeerID), id: m.ID}] = m.Date
@@ -85,11 +90,8 @@ func loadDialogPage(ctx context.Context, api *tg.Client, page dialogPage) ([]cha
 		}
 	}
 
-	chats := make([]chat, 0, min(len(data.GetDialogs()), chatLimit))
-
-	var next dialogCursor
-
-	for _, item := range data.GetDialogs() {
+	entries := make([]dialogEntry, 0, len(dialogs))
+	for _, item := range dialogs {
 		d, ok := item.(*tg.Dialog)
 		if !ok {
 			continue
@@ -104,16 +106,86 @@ func loadDialogPage(ctx context.Context, api *tg.Client, page dialogPage) ([]cha
 			c.title = "Deleted account"
 		}
 
-		c.unread, c.readOutboxID = dialogUnread(d), d.ReadOutboxMaxID
-		chats = append(chats, c)
+		c.folder = nativeFolder
+		if nativeFolder < 0 {
+			c.folder = d.FolderID
+		}
 
-		if date := dates[chatPosition{chat: c.key, id: d.TopMessage}]; !d.Pinned && date > 0 {
-			next = dialogCursor{input: c.input, date: date, id: d.TopMessage}
+		c.unread, c.readOutboxID = dialogUnread(d), d.ReadOutboxMaxID
+		category := categories[c.key]
+		if c.group {
+			category = folderGroups
+		} else if c.key.kind == 'c' {
+			category = folderBroadcasts
+		}
+
+		until, muteSet := d.NotifySettings.GetMuteUntil()
+		entries = append(entries, dialogEntry{chat: c, category: category,
+			date: dates[chatPosition{chat: c.key, id: d.TopMessage}], muteUntil: until, muteSet: muteSet})
+	}
+
+	return entries
+}
+
+func loadNativeDialogs(ctx context.Context, api *tg.Client, folder int, cursor dialogCursor, excludePinned, keepShort bool) ([]dialogEntry, dialogCursor, bool, error) {
+	query := &tg.MessagesGetDialogsRequest{Limit: chatLimit, OffsetPeer: &tg.InputPeerEmpty{}, ExcludePinned: excludePinned}
+	query.SetFolderID(folder)
+	if cursor.input != nil {
+		query.OffsetPeer, query.OffsetID, query.OffsetDate = cursor.input, cursor.id, cursor.date
+		query.ExcludePinned = true
+	}
+
+	result, err := api.MessagesGetDialogs(ctx, query)
+	if err != nil {
+		return nil, dialogCursor{}, false, err
+	}
+
+	data, ok := result.AsModified()
+	if !ok {
+		return nil, dialogCursor{}, false, nil
+	}
+
+	entries := parseDialogEntries(data.GetDialogs(), data.GetUsers(), data.GetChats(), data.GetMessages(), folder)
+	var next dialogCursor
+	for _, c := range entries {
+		if !c.unread.pinned && c.date > 0 {
+			next = dialogCursor{input: c.input, key: c.key, date: c.date, id: c.unread.topID}
 		}
 	}
 
-	if _, sliced := result.(*tg.MessagesDialogsSlice); !sliced || len(data.GetDialogs()) < chatLimit {
+	// Physical lists historically stop at a short page. Custom lists can
+	// continue through a short slice when Telegram reports more dialogs.
+	slice, sliced := result.(*tg.MessagesDialogsSlice)
+	full := len(data.GetDialogs()) >= chatLimit
+	more := sliced && (full || keepShort && slice.Count > len(data.GetDialogs()))
+	if !more || sameDialogOffset(cursor, next) {
 		next = dialogCursor{}
+	}
+
+	return entries, next, more, nil
+}
+
+func sameDialogOffset(a, b dialogCursor) bool {
+	return a.key == b.key && a.id == b.id && a.date == b.date
+}
+
+func (c dialogCursor) available() bool {
+	return c.input != nil || c.custom != nil
+}
+
+func loadDialogPage(ctx context.Context, api *tg.Client, page dialogPage) ([]chat, dialogCursor, error) {
+	if page.filter != nil {
+		return loadFolderPage(ctx, api, *page.filter, page.cursor.custom)
+	}
+
+	entries, next, _, err := loadNativeDialogs(ctx, api, page.folder, page.cursor, false, false)
+	if err != nil {
+		return nil, dialogCursor{}, err
+	}
+
+	chats := make([]chat, 0, len(entries))
+	for _, entry := range entries {
+		chats = append(chats, entry.chat)
 	}
 
 	return chats, next, nil
@@ -138,7 +210,7 @@ func (a *app) receiveDialogs(out chan<- request, e serverEvent) {
 	}
 
 	selected := 0
-	if len(a.chats) > 0 && a.dialogPage.folder == e.page.folder && e.page.step == 0 {
+	if len(a.chats) > 0 && sameDialogFolder(a.dialogPage, e.page) && e.page.step == 0 {
 		id := a.chats[a.selected].key
 		selected = max(0, slices.IndexFunc(e.chats, func(c chat) bool { return c.key == id }))
 	}
@@ -181,9 +253,9 @@ func (a *app) pageDialogs(out chan<- request, step int) {
 		return
 	}
 
-	page := dialogPage{folder: a.dialogPage.folder, step: step}
+	page := dialogPage{folder: a.dialogPage.folder, filter: a.dialogPage.filter, step: step}
 	if step > 0 {
-		if a.dialogPage.next.input == nil {
+		if !a.dialogPage.next.available() {
 			a.status = "End of chat list"
 			return
 		}
@@ -207,7 +279,9 @@ func moveDialog(ctx context.Context, api *tg.Client, req request) error {
 
 func (a *app) dialogTitle() string {
 	title := "Chats"
-	if a.dialogPage.folder == 1 {
+	if a.dialogPage.filter != nil {
+		title = a.dialogPage.filter.title
+	} else if a.dialogPage.folder == 1 {
 		title = "Archive"
 	}
 

@@ -31,6 +31,8 @@ type app struct {
 	chats                                          []chat
 	dialogsLoaded                                  bool
 	dialogPage                                     dialogPage
+	dialogFilters                                  []dialogFilter
+	folderPickerChat                               peerKey
 	dialogPrevious                                 []dialogCursor
 	thread, resumeThread                           *chat
 	threadReturnID, threadJumpBase, resumeReturnID int
@@ -178,7 +180,9 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 
 		a.accountID, a.accountName = e.accountID, e.text
 		a.rememberAvatar(peerKey{'u', e.accountID}, e.avatar)
-		a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder, cursor: a.dialogPage.cursor}})
+		a.ask(out, request{kind: "chats", page: dialogPage{folder: a.dialogPage.folder, cursor: a.dialogPage.cursor, filter: a.dialogPage.filter}})
+	case "dialogFilters":
+		a.receiveDialogFilters(out, e.dialogFilters)
 	case "chats":
 		a.receiveDialogs(out, e)
 	case "pollResults", "pollVote", "pollUpdate":
@@ -194,6 +198,11 @@ func (a *app) receive(out chan<- request, e serverEvent) {
 		}
 	case "archiveChat":
 		a.pending = ""
+		if a.dialogPage.filter != nil {
+			a.ask(out, request{kind: "chats", page: dialogPage{filter: a.dialogPage.filter}})
+			break
+		}
+
 		if i := slices.IndexFunc(a.chats, func(c chat) bool { return c.key == e.chat }); i >= 0 {
 			a.chats = slices.Delete(a.chats, i, i+1)
 			a.selected = min(a.selected, max(0, len(a.chats)-1))
