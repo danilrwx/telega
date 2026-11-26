@@ -255,9 +255,7 @@ func Run(opts Options) error {
 			return err
 		}
 
-		if a.pendingUpdate != nil && a.ready && !a.composing && a.voice == nil && a.imagePreview == nil && len(a.dialogPopup(w, h).Lines) == 0 {
-			a.updateDialog, a.pendingUpdate = a.pendingUpdate, nil
-		}
+		a.showPendingUpdate(w, h)
 
 		if displayedImage != nil && displayedImage != a.imagePreview {
 			closeDisplayedImage()

@@ -38,3 +38,25 @@ func TestUpdateDialogInstallsAndKeepsErrorsVisible(t *testing.T) {
 		t.Fatal("failed update cannot be dismissed")
 	}
 }
+
+func TestUpdatePromptWaitsForTextInput(t *testing.T) {
+	for _, mode := range []string{"composing", "searching", "reaction"} {
+		t.Run(mode, func(t *testing.T) {
+			dialog := &tui.UpdateDialog{}
+			a := app{ready: true, pendingUpdate: dialog}
+			a.composing, a.searching, a.pickingReaction = mode == "composing", mode == "searching", mode == "reaction"
+			a.showPendingUpdate(96, 24)
+
+			if a.updateDialog != nil || a.pendingUpdate != dialog {
+				t.Fatal("update prompt interrupted input")
+			}
+
+			a.composing, a.searching, a.pickingReaction = false, false, false
+			a.showPendingUpdate(96, 24)
+
+			if a.updateDialog != dialog || a.pendingUpdate != nil {
+				t.Fatal("deferred prompt did not appear after input")
+			}
+		})
+	}
+}
