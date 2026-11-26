@@ -287,12 +287,14 @@ func (g *InlineImages) Write(data []byte) (int, error) {
 
 // WriteString keeps string writes on the same serialized output path.
 func (g *InlineImages) WriteString(s string) (int, error) {
+	g.mu.Lock()
 	if g.sixel && !strings.Contains(s, inlinePlaceholder) {
-		g.mu.Lock()
 		defer g.mu.Unlock()
 
 		return g.File.WriteString(s)
 	}
+
+	g.mu.Unlock()
 
 	return g.Write([]byte(s))
 }

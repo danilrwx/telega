@@ -124,3 +124,46 @@ func TestImageOutputCanEnableAfterStartup(t *testing.T) {
 		t.Fatal("disabling graphics left stale image placements")
 	}
 }
+
+func TestGraphicsRefreshCanRunWhileWriting(t *testing.T) {
+	t.Setenv("TUI_GRAPHICS", "off")
+
+	file, err := os.CreateTemp(t.TempDir(), "terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = file.Close() }()
+
+	output := NewImageOutput(file)
+	done := make(chan error, 1)
+
+	go func() {
+		for range 2000 {
+			if _, err := output.WriteString("plain text"); err != nil {
+				done <- err
+				return
+			}
+		}
+
+		done <- nil
+	}()
+
+	for range 20 {
+		if err := os.Setenv("TUI_GRAPHICS", "sixel"); err != nil {
+			t.Fatal(err)
+		}
+
+		output.Refresh()
+
+		if err := os.Setenv("TUI_GRAPHICS", "off"); err != nil {
+			t.Fatal(err)
+		}
+
+		output.Refresh()
+	}
+
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
