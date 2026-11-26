@@ -160,7 +160,7 @@ func (im *TerminalImage) prepareSixelPreview(width, height, cellWidth int, scale
 
 type inlineSixel struct {
 	source                image.Image
-	rows                  []string
+	data                  string
 	cellWidth, cellHeight int
 }
 
@@ -184,23 +184,23 @@ func (s *inlineSixel) prepare(width, height, cellWidth, cellHeight int) {
 	x, y := (pixelWidth-w)/2, (pixelHeight-h)/2
 	xdraw.ApproxBiLinear.Scale(frame, image.Rect(x, y, x+w, y+h), s.source, bounds, xdraw.Src, nil)
 
-	s.rows = make([]string, height)
-	for row := range height {
-		// Independent cell-height images keep a changed row from erasing its neighbours.
-		strip := image.NewNRGBA(image.Rect(0, 0, pixelWidth, cellHeight))
-		xdraw.Draw(strip, strip.Bounds(), frame, image.Pt(0, row*cellHeight), xdraw.Src)
-		s.rows[row], _ = renderSixel(strip)
-	}
+	s.data, _ = renderSixel(frame)
 }
 
 func (s *inlineSixel) writeRow(out *bufio.Writer, width, row int) {
-	if row >= len(s.rows) || s.rows[row] == "" {
+	if s.data == "" {
 		_, _ = out.WriteString(strings.Repeat(" ", width))
 		return
 	}
 
 	_, _ = fmt.Fprintf(out, "\x1b[%dX\x1b7", width)
-	_, _ = out.WriteString(s.rows[row])
+	// tmux invalidates an overlapping Sixel image as a whole, even with separate row strips.
+	// Redraw the full image from any anchor when the renderer updates only one row.
+	if row != 0 {
+		_, _ = fmt.Fprintf(out, "\x1b[%dA", row)
+	}
+
+	_, _ = out.WriteString(s.data)
 	_, _ = fmt.Fprintf(out, "\x1b8\x1b[%dC", width)
 }
 
