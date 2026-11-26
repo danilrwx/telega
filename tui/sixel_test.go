@@ -91,9 +91,9 @@ func TestSixelPreviewAndInlinePlacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A renderer may update just the second row. It must still redraw the whole thumbnail.
-	if !bytes.Contains(wire, []byte("\x1b7\x1b[1A\x1bP0;1q\"1;1;32;32")) {
-		t.Fatalf("a single changed row did not repaint the complete thumbnail: %q", wire)
+	// A changed row redraws only its own strip, preserving the other image rows.
+	if !bytes.Contains(wire, []byte("\x1b7\x1bP0;1q\"1;1;32;16")) {
+		t.Fatalf("a single changed row did not repaint its own strip: %q", wire)
 	}
 
 	t.Setenv("TUI_GRAPHICS", "off")
@@ -113,6 +113,46 @@ func TestClosingPreviewDropsTheRaster(t *testing.T) {
 
 	if im.source != nil || im.sixelColumns != nil {
 		t.Fatal("closing the preview should drop all raster data")
+	}
+}
+
+func TestInlineSixelRowsPreservePixels(t *testing.T) {
+	// A terminal cell need not be a multiple of Sixel's six-pixel bands.
+	const width, cellHeight = 16, 17
+
+	src := image.NewNRGBA(image.Rect(0, 0, width, cellHeight*2))
+	for y := range cellHeight * 2 {
+		c := color.NRGBA{R: 255, A: 255}
+		if y >= cellHeight {
+			c = color.NRGBA{B: 255, A: 255}
+		}
+
+		draw.Draw(src, image.Rect(0, y, width, y+1), image.NewUniform(c), image.Point{}, draw.Src)
+	}
+
+	s := inlineSixel{source: src}
+	s.prepare(2, 2, 8, cellHeight)
+
+	for row, data := range s.rows {
+		payload := strings.TrimSuffix(strings.TrimPrefix(data, "\x1bP0;1q"), "\x1b\\")
+
+		decoded, err := new(sixel.Decoder).Decode(strings.NewReader(payload + "-"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if decoded.Bounds() != image.Rect(0, 0, width, cellHeight) {
+			t.Fatalf("row %d has unexpected bounds %v", row, decoded.Bounds())
+		}
+
+		for y := range cellHeight {
+			for x := range width {
+				got := color.NRGBAModel.Convert(decoded.At(x, y))
+				if want := src.NRGBAAt(x, row*cellHeight+y); got != want {
+					t.Fatalf("row %d pixel %d,%d: got %v, want %v", row, x, y, got, want)
+				}
+			}
+		}
 	}
 }
 
