@@ -110,21 +110,55 @@ type InlineImages struct {
 	items     map[string]*InlineImage
 	order     []string
 	sixel     bool
+	enabled   bool
 	sixelTags map[string]*InlineImage
 }
 
 func NewInlineImages(out *os.File) *InlineImages {
-	sixel := sixelGraphics()
-	if !sixel && !KittyGraphics() {
+	g := NewImageOutput(out)
+	if !g.Enabled() {
 		return nil
 	}
 
-	g := &InlineImages{File: out, items: make(map[string]*InlineImage), sixel: sixel}
-	if sixel {
-		g.sixelTags = make(map[string]*InlineImage)
+	return g
+}
+
+// NewImageOutput keeps one output writer even if graphics become available later.
+func NewImageOutput(out *os.File) *InlineImages {
+	sixel := sixelGraphics()
+	return &InlineImages{File: out, items: make(map[string]*InlineImage), sixelTags: make(map[string]*InlineImage), sixel: sixel, enabled: sixel || KittyGraphics()}
+}
+
+// Enabled reports whether the writer can currently place inline images.
+func (g *InlineImages) Enabled() bool {
+	if g == nil {
+		return false
 	}
 
-	return g
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.enabled
+}
+
+// Refresh rechecks capabilities and discards placements encoded for an old terminal.
+func (g *InlineImages) Refresh() bool {
+	RefreshTerminalGraphics()
+
+	sixel := sixelGraphics()
+	enabled := sixel || KittyGraphics()
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.sixel == sixel && g.enabled == enabled {
+		return false
+	}
+
+	g.clearLocked()
+	g.sixel, g.enabled = sixel, enabled
+
+	return true
 }
 
 func (g *InlineImages) Get(key string) *InlineImage {
@@ -134,6 +168,10 @@ func (g *InlineImages) Get(key string) *InlineImage {
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	if !g.enabled {
+		return nil
+	}
 
 	return g.items[key]
 }
@@ -146,6 +184,10 @@ func (g *InlineImages) Start(key string) bool {
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	if !g.enabled {
+		return false
+	}
 
 	if _, seen := g.items[key]; seen {
 		return false
@@ -176,6 +218,10 @@ func (g *InlineImages) Store(key string, image *InlineImage) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	if !g.enabled || image != nil && (image.sixel != nil) != g.sixel {
+		return
+	}
+
 	if old, ok := g.items[key]; ok {
 		if old != nil {
 			delete(g.sixelTags, old.tag)
@@ -191,6 +237,10 @@ func (g *InlineImages) Store(key string, image *InlineImage) {
 func (g *InlineImages) Write(data []byte) (int, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	if !g.enabled {
+		return g.File.Write(data)
+	}
 
 	if g.sixel {
 		return g.writeSixel(data)
@@ -251,6 +301,10 @@ func (g *InlineImages) Clear() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	g.clearLocked()
+}
+
+func (g *InlineImages) clearLocked() {
 	for _, image := range g.items {
 		if image != nil && image.sent {
 			_, _ = g.File.WriteString(image.delete)
