@@ -44,21 +44,7 @@ func sixelGraphics() bool {
 		term == "xterm-sixel" || term == "mlterm" || term == "yaft-256color"
 }
 
-var tmuxUsesSixel = sync.OnceValue(func() bool {
-	pane := os.Getenv("TMUX_PANE")
-	if pane == "" {
-		return false
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	result, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "-t", pane,
-		"#{sixel_support} #{client_termfeatures}").Output()
-	fields := strings.Fields(string(result))
-
-	return err == nil && len(fields) == 2 && fields[0] == "1" && slices.Contains(strings.Split(fields[1], ","), "sixel")
-})
+func tmuxUsesSixel() bool { return tmuxGraphics().sixel }
 
 func renderSixel(img image.Image) (string, error) {
 	var out bytes.Buffer

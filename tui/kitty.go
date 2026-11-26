@@ -2,7 +2,6 @@ package tui
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -12,10 +11,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"strings"
-	"sync"
-	"time"
 
 	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -50,25 +46,7 @@ func KittyGraphics() bool {
 	return os.Getenv("KITTY_WINDOW_ID") != "" || os.Getenv("TERM") == "xterm-kitty"
 }
 
-var tmuxUsesKitty = sync.OnceValue(func() bool {
-	pane := os.Getenv("TMUX_PANE")
-	if pane == "" {
-		return false
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	result, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "-t", pane,
-		"#{client_termname} #{allow-passthrough}").Output()
-	if err != nil {
-		return false
-	}
-
-	fields := strings.Fields(string(result))
-
-	return len(fields) == 2 && fields[0] == "xterm-kitty" && (fields[1] == "on" || fields[1] == "all")
-})
+func tmuxUsesKitty() bool { return tmuxGraphics().kitty }
 
 // TerminalImage holds a bounded source image and its encoded terminal raster.
 type TerminalImage struct {
