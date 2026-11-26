@@ -77,7 +77,7 @@ Select a poll and press `Enter` to view options and results. Use `Space` to sele
 - **Photos and attachments** — `o` opens the selected attachment. For an image preview, press `o` again to open the system viewer or `Esc` to close it. Video details appear when Telegram provides them. Downloads are cached under `${XDG_CACHE_HOME:-$HOME/.cache}/telega/attachments`.
 - **Reactions** — `z` opens quick reactions, `←` / `→` browse reactions already on the message, and `Tab` opens the catalog. Choose with `Enter` and choose again to remove. `Shift+Z` shows who reacted when Telegram provides the list. `Ctrl+O` previews an available custom emoji in the catalog.
 
-Kitty and Sixel terminals can show inline attachments, gallery thumbnails, avatars, and custom reactions. Telega detects graphics in Kitty and Foot. Use `TUI_GRAPHICS=sixel` to select Sixel explicitly or `TUI_GRAPHICS=off` to disable graphics. Sixel in tmux requires support from both tmux and the outer terminal.
+Kitty and Sixel terminals can show inline attachments, gallery thumbnails, avatars, and custom reactions. Telega detects graphics in Kitty and Foot. Use `TUI_GRAPHICS=sixel` to select Sixel explicitly or `TUI_GRAPHICS=off` to disable graphics. Sixel in tmux requires support from both tmux and the outer terminal. In Foot, enabling `set -g allow-passthrough on` and `set -g focus-events on` in tmux lets inline images bypass its small Sixel cache. Telega repaints them when the pane regains focus.
 
 ## Voice messages
 

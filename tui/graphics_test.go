@@ -34,14 +34,14 @@ func TestPreviewCanRefreshGraphicsAfterTmuxAttach(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	set("linux|off|1|bpaste")
+	set("linux|off|1|bpaste|1")
 	RefreshTerminalGraphics()
 
 	if ImageGraphics() {
 		t.Fatal("graphics detected before a capable client attached")
 	}
 
-	set("foot|on|1|RGB,sixel")
+	set("foot|on|1|RGB,sixel|1")
 
 	if ImageGraphics() {
 		t.Fatal("redraw unexpectedly re-probed tmux")
@@ -49,11 +49,25 @@ func TestPreviewCanRefreshGraphicsAfterTmuxAttach(t *testing.T) {
 
 	RefreshTerminalGraphics()
 
-	if !ImageGraphics() || KittyGraphics() {
+	if !ImageGraphics() || KittyGraphics() || !tmuxGraphics().sixelPassthrough {
 		t.Fatal("preview did not recover Sixel after Foot attached")
 	}
 
-	set("xterm-kitty|all|1|RGB")
+	set("foot|off|1|RGB,sixel|1")
+	RefreshTerminalGraphics()
+
+	if tmuxGraphics().sixelPassthrough {
+		t.Fatal("passthrough selected when tmux disallows it")
+	}
+
+	set("foot|on|1|RGB,sixel|0")
+	RefreshTerminalGraphics()
+
+	if tmuxGraphics().sixelPassthrough {
+		t.Fatal("passthrough needs focus reports to restore switched panes")
+	}
+
+	set("xterm-kitty|all|1|RGB|1")
 	RefreshTerminalGraphics()
 
 	if !KittyGraphics() {

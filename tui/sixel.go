@@ -161,6 +161,7 @@ func (im *TerminalImage) prepareSixelPreview(width, height, cellWidth int, scale
 type inlineSixel struct {
 	source                image.Image
 	data                  string
+	rows                  []string
 	cellWidth, cellHeight int
 }
 
@@ -185,23 +186,45 @@ func (s *inlineSixel) prepare(width, height, cellWidth, cellHeight int) {
 	xdraw.ApproxBiLinear.Scale(frame, image.Rect(x, y, x+w, y+h), s.source, bounds, xdraw.Src, nil)
 
 	s.data, _ = renderSixel(frame)
+
+	s.rows = make([]string, height)
+	for row := range height {
+		strip := image.NewNRGBA(image.Rect(0, 0, pixelWidth, cellHeight))
+		xdraw.Draw(strip, strip.Bounds(), frame, image.Pt(0, row*cellHeight), xdraw.Src)
+		s.rows[row], _ = renderSixel(strip)
+	}
 }
 
-func (s *inlineSixel) writeRow(out *bufio.Writer, width, row int) {
+func (s *inlineSixel) writeRow(out *bufio.Writer, width, row int, passthrough bool) {
 	if s.data == "" {
 		_, _ = out.WriteString(strings.Repeat(" ", width))
 		return
 	}
 
-	_, _ = fmt.Fprintf(out, "\x1b[%dX\x1b7", width)
-	// tmux invalidates an overlapping Sixel image as a whole, even with separate row strips.
-	// Redraw the full image from any anchor when the renderer updates only one row.
-	if row != 0 {
-		_, _ = fmt.Fprintf(out, "\x1b[%dA", row)
+	_, _ = fmt.Fprintf(out, "\x1b[%dX", width)
+
+	var packet strings.Builder
+	packet.WriteString("\x1b7")
+	// Native tmux Sixel erases whole images; Foot passthrough can update individual rows.
+	if row != 0 && !passthrough {
+		_, _ = fmt.Fprintf(&packet, "\x1b[%dA", row)
 	}
 
-	_, _ = out.WriteString(s.data)
-	_, _ = fmt.Fprintf(out, "\x1b8\x1b[%dC", width)
+	if passthrough {
+		packet.WriteString(s.rows[row])
+	} else {
+		packet.WriteString(s.data)
+	}
+
+	packet.WriteString("\x1b8")
+
+	if passthrough {
+		_, _ = out.WriteString("\x1bPtmux;" + strings.ReplaceAll(packet.String(), "\x1b", "\x1b\x1b") + "\x1b\\")
+	} else {
+		_, _ = out.WriteString(packet.String())
+	}
+
+	_, _ = fmt.Fprintf(out, "\x1b[%dC", width)
 }
 
 func (g *InlineImages) writeSixel(data []byte) (int, error) {
@@ -213,6 +236,7 @@ func (g *InlineImages) writeSixel(data []byte) (int, error) {
 	width, height := terminalCellSize(g.File)
 	cellWidth, cellHeight := max(1, min(128, int(width))), max(1, min(128, int(height)))
 	out := bufio.NewWriter(g.File)
+	passthrough := KittyPassthrough() && tmuxGraphics().sixelPassthrough
 
 	const (
 		sgr    = "\x1b[38;2;"
@@ -235,7 +259,7 @@ func (g *InlineImages) writeSixel(data []byte) (int, error) {
 					return bytes.HasPrefix(data, []byte(pattern))
 				}); row >= 0 {
 					image.sixel.prepare(image.Width, len(image.Rows), cellWidth, cellHeight)
-					image.sixel.writeRow(out, image.Width, row)
+					image.sixel.writeRow(out, image.Width, row, passthrough)
 					data = data[len(image.Rows[row]):]
 
 					continue

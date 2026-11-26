@@ -347,6 +347,10 @@ func Run(opts Options) error {
 				return nil
 			}
 
+			if k.name == "focus" {
+				screen = screenPainter{}
+			}
+
 			if a.voiceRequested {
 				a.voiceRequested = false
 				a.stopVoicePlayback()

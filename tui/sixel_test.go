@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bufio"
 	"bytes"
 	"image"
 	"image/color"
@@ -191,5 +192,33 @@ func TestSixelColumnsFitTheTmuxBuffer(t *testing.T) {
 
 	if width != src.Bounds().Dx() {
 		t.Fatalf("combined tiles span %d px, expected %d", width, src.Bounds().Dx())
+	}
+}
+
+func TestSixelPassthroughKeepsEachCellRowIndependent(t *testing.T) {
+	s := inlineSixel{source: image.NewNRGBA(image.Rect(0, 0, 16, 34))}
+	s.prepare(2, 2, 8, 17)
+
+	for row := range 2 {
+		var wire bytes.Buffer
+
+		out := bufio.NewWriter(&wire)
+		s.writeRow(out, 2, row, true)
+
+		if err := out.Flush(); err != nil {
+			t.Fatal(err)
+		}
+
+		packet := strings.TrimPrefix(wire.String(), "\x1b[2X\x1bPtmux;")
+		packet = strings.TrimSuffix(packet, "\x1b\\\x1b[2C")
+
+		packet = strings.ReplaceAll(packet, "\x1b\x1b", "\x1b")
+		if want := "\x1b7" + s.rows[row] + "\x1b8"; packet != want {
+			t.Fatalf("row %d: incorrectly framed passthrough %q", row, wire.String())
+		}
+
+		if !strings.Contains(packet, `"1;1;16;17`) || strings.Contains(packet, "\x1b[1A") {
+			t.Fatalf("row %d redraws its neighbour: %q", row, packet)
+		}
 	}
 }

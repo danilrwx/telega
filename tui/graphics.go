@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-type graphicsModes struct{ kitty, sixel bool }
+type graphicsModes struct{ kitty, sixel, sixelPassthrough bool }
 
 var graphicsCache struct {
 	sync.Mutex
@@ -53,18 +53,21 @@ func queryTmuxGraphics() graphicsModes {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	output, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "-t", pane, "#{client_termname}|#{allow-passthrough}|#{sixel_support}|#{client_termfeatures}").Output()
+	output, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "-t", pane, "#{client_termname}|#{allow-passthrough}|#{sixel_support}|#{client_termfeatures}|#{focus-events}").Output()
 	if err != nil {
 		return graphicsModes{}
 	}
 
 	fields := strings.Split(strings.TrimSpace(string(output)), "|")
-	if len(fields) != 4 {
+	if len(fields) != 5 {
 		return graphicsModes{}
 	}
 
 	return graphicsModes{
 		kitty: fields[0] == "xterm-kitty" && (fields[1] == "on" || fields[1] == "all"),
 		sixel: fields[2] == "1" && slices.Contains(strings.Split(fields[3], ","), "sixel"),
+		// Focus reports let clients restore graphics after tmux redraws a switched pane.
+		sixelPassthrough: fields[4] == "1" && (fields[0] == "foot" || strings.HasPrefix(fields[0], "foot-")) &&
+			(fields[1] == "on" || fields[1] == "all"),
 	}
 }
