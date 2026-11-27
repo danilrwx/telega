@@ -6,10 +6,10 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/gotd/td v0.166.1
 	github.com/rivo/uniseg v0.4.7
-	golang.org/x/image v0.45.0
-	golang.org/x/mod v0.38.0
-	golang.org/x/sys v0.48.0
-	golang.org/x/term v0.46.0
+	golang.org/x/image v0.48.0
+	golang.org/x/mod v0.42.0
+	golang.org/x/sys v0.50.0
+	golang.org/x/term v0.47.0
 	rsc.io/qr v0.2.0
 )
 
@@ -49,11 +49,11 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090 // indirect
-	golang.org/x/net v0.57.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
-	golang.org/x/tools v0.48.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
+	golang.org/x/tools v0.52.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
